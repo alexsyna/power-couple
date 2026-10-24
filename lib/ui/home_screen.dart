@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../domain/catalog.dart';
 import '../domain/engine.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'log_task_screen.dart';
 import 'missions.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -33,7 +35,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 14),
           Leaderboard(week: week),
           const SizedBox(height: 14),
-          QuestList(week: week),
+          QuestList(week: week, canHit: true),
           const SizedBox(height: 14),
           const MissionsCard(),
         ],
@@ -232,44 +234,72 @@ class Leaderboard extends StatelessWidget {
 }
 
 class QuestList extends StatelessWidget {
-  const QuestList({super.key, required this.week});
+  const QuestList({super.key, required this.week, this.canHit = false});
 
   final WeekResult week;
 
+  /// Shows a Hit button on unfinished quests (only for the current week).
+  final bool canHit;
+
   static const _colors = [Vivid.sun, Vivid.sky, Vivid.grape, Vivid.flame];
+
+  /// Opens the shared log flow narrowed to the tasks this quest still needs;
+  /// with a single option, straight to its confirm sheet.
+  static void _hit(BuildContext context, QuestProgress q, List<TaskDef> tasks) {
+    if (tasks.length == 1) {
+      openLogTaskFor(context, tasks.single);
+    } else {
+      openLogTask(context, only: tasks, title: '${q.quest.emoji} ${q.quest.name}');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final available = canHit ? AppScope.of(context).visibleTasks : const <TaskDef>[];
     return SectionCard(
       title: '🗺️ Quests',
       trailing: Pill('${week.questsCompleted}/${week.quests.length}', color: Vivid.grass),
       child: Column(children: [
         for (final (qi, q) in week.quests.indexed)
-          Padding(
-            padding: EdgeInsets.only(bottom: qi == week.quests.length - 1 ? 0 : 16),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              EmojiBadge(q.isComplete ? '✅' : q.quest.emoji,
-                  color: q.isComplete ? Vivid.grass : _colors[qi % _colors.length], size: 48),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Row(children: [
-                    Expanded(child: Text(q.quest.name, style: theme.textTheme.titleSmall)),
-                    Pill('+${q.quest.bonus}', color: Vivid.sun, filled: q.isComplete),
-                  ]),
-                  for (final (i, r) in q.quest.requirements.indexed)
-                    Text('${r.label}  ${q.progress[i]}/${r.count}', style: theme.textTheme.bodySmall),
-                  const SizedBox(height: 6),
-                  ProgressBar(
-                    value: q.fraction,
-                    height: 14,
-                    color: q.isComplete ? Vivid.grass : _colors[qi % _colors.length],
-                  ),
-                ]),
-              ),
+          _questRow(context, qi, q, q.tasksToProgress(available), last: qi == week.quests.length - 1),
+      ]),
+    );
+  }
+
+  Widget _questRow(BuildContext context, int qi, QuestProgress q, List<TaskDef> hitTasks, {required bool last}) {
+    final theme = Theme.of(context);
+    final color = q.isComplete ? Vivid.grass : _colors[qi % _colors.length];
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 16),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        EmojiBadge(q.isComplete ? '✅' : q.quest.emoji, color: color, size: 48),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Expanded(child: Text(q.quest.name, style: theme.textTheme.titleSmall)),
+              Pill('+${q.quest.bonus}', color: Vivid.sun, filled: q.isComplete),
             ]),
-          ),
+            for (final (i, r) in q.quest.requirements.indexed)
+              Text('${r.label}  ${q.progress[i]}/${r.count}', style: theme.textTheme.bodySmall),
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(child: ProgressBar(value: q.fraction, height: 14, color: color)),
+              if (!q.isComplete && hitTasks.isNotEmpty) ...[
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 84,
+                  child: ChunkyButton(
+                    label: 'Hit',
+                    icon: const Text('💥'),
+                    compact: true,
+                    onPressed: () => _hit(context, q, hitTasks),
+                  ),
+                ),
+              ],
+            ]),
+          ]),
+        ),
       ]),
     );
   }

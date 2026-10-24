@@ -157,7 +157,7 @@ class WeekSummaryScreen extends StatelessWidget {
           const SizedBox(height: 14),
           Leaderboard(week: week),
           const SizedBox(height: 14),
-          QuestList(week: week),
+          QuestList(week: week, canHit: isCurrent),
           const SizedBox(height: 14),
           SectionCard(
             title: '📊 Most frequent',

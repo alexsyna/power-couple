@@ -140,6 +140,18 @@ class QuestProgress {
     return true;
   }
 
+  /// Requirements not yet met, in quest order.
+  List<QuestRequirement> get pending => [
+        for (var i = 0; i < progress.length; i++)
+          if (progress[i] < quest.requirements[i].count) quest.requirements[i],
+      ];
+
+  /// Catalog tasks that would move this quest forward.
+  List<TaskDef> tasksToProgress(Iterable<TaskDef> available) {
+    final open = pending;
+    return [for (final t in available) if (open.any((r) => r.matches(t))) t];
+  }
+
   double get fraction {
     final total = quest.requirements.fold(0, (s, r) => s + r.count);
     final done = progress.fold(0, (s, p) => s + p);

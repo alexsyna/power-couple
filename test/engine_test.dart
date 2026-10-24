@@ -124,6 +124,20 @@ void main() {
     expect(w.pointsByPerson.values.fold(0, (s, p) => s + p), w.taskPoints);
   });
 
+  test('a quest offers only the tasks for its unmet requirements', () {
+    final laundryZero = questPool.firstWhere((q) => q.id == 'laundry_zero');
+    final visible = visibleCatalog(hasKids: false, hasPets: false);
+    // Loads done (2/2), folding still open (0/2).
+    final half = QuestProgress(laundryZero, [2, 0]);
+    expect(half.pending.map((r) => r.label), ['Fold and put away']);
+    expect(half.tasksToProgress(visible).map((t) => t.id), ['fold_laundry']);
+    // Nothing done: both tasks qualify, and "Other" never does.
+    final none = QuestProgress(laundryZero, [0, 0]);
+    expect(none.tasksToProgress(catalog).map((t) => t.id), ['laundry_load', 'fold_laundry']);
+    // Complete: nothing left to offer.
+    expect(QuestProgress(laundryZero, [2, 2]).tasksToProgress(visible), isEmpty);
+  });
+
   test('kid and pet quests only appear for households that have them', () {
     for (var i = 0; i < 12; i++) {
       final week = addDays(monday, 7 * i);

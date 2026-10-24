@@ -8,13 +8,30 @@ import '../domain/models.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 
-/// Opens the catalog. After a task is logged, shows the result (and an undo)
-/// on the screen the user came from.
-Future<void> openLogTask(BuildContext context) async {
+/// Opens the catalog, optionally narrowed to [only] (e.g. a quest's tasks).
+/// After a task is logged, shows the result (and an undo) on the screen the
+/// user came from.
+Future<void> openLogTask(BuildContext context, {List<TaskDef>? only, String? title}) async {
   final message = await Navigator.of(context).push<_LogOutcome>(
-    MaterialPageRoute(fullscreenDialog: true, builder: (_) => const LogTaskScreen()),
+    MaterialPageRoute(fullscreenDialog: true, builder: (_) => LogTaskScreen(only: only, title: title)),
   );
-  if (message == null || !context.mounted) return;
+  if (context.mounted) await _announce(context, message);
+}
+
+/// Skips the catalog and goes straight to logging [task].
+Future<void> openLogTaskFor(BuildContext context, TaskDef task) async {
+  final message = await showModalBottomSheet<_LogOutcome>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => _ConfirmLogSheet(task: task),
+  );
+  if (context.mounted) await _announce(context, message);
+}
+
+/// Success message with undo, plus the victory dialog if the boss just fell.
+Future<void> _announce(BuildContext context, _LogOutcome? message) async {
+  if (message == null) return;
   final app = AppScope.of(context);
   showMessage(
     context,
@@ -77,7 +94,11 @@ const _categoryColors = <TaskCategory, Color>{
 Color categoryColor(TaskCategory c) => _categoryColors[c] ?? Vivid.sky;
 
 class LogTaskScreen extends StatefulWidget {
-  const LogTaskScreen({super.key});
+  const LogTaskScreen({super.key, this.only, this.title});
+
+  /// Restricts the catalog to these tasks; null shows everything.
+  final List<TaskDef>? only;
+  final String? title;
 
   @override
   State<LogTaskScreen> createState() => _LogTaskScreenState();
@@ -108,16 +129,17 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final s = Surface.of(context);
-    final tasks = app.visibleTasks;
+    final tasks = widget.only ?? app.visibleTasks;
     final q = _query.trim().toLowerCase();
     final matches = q.isEmpty
         ? tasks
         : tasks.where((t) => t.name.toLowerCase().contains(q) || t.category.label.toLowerCase().contains(q)).toList();
-    final recent = app.recentTasks;
+    // Quick log only makes sense for the full catalog.
+    final recent = widget.only == null ? app.recentTasks : const <TaskDef>[];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('What did you do?'),
+        title: Text(widget.title ?? 'What did you do?'),
         leading: IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
       ),
       body: ListView(
@@ -189,7 +211,7 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
                   ),
                 ),
             ],
-          if (matches.isEmpty)
+          if (matches.isEmpty && widget.only == null)
             Padding(
               padding: const EdgeInsets.all(24),
               child: Column(children: [
