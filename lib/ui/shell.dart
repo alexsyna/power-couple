@@ -39,9 +39,21 @@ class _ShellState extends State<Shell> {
               icon: const Icon(Icons.swap_horiz),
               onPressed: backend.switchPartner,
             ),
-          _StatChip(emoji: '🔥', value: '${app.streak}', color: Vivid.flame),
+          _StatChip(
+            emoji: '🔥',
+            value: '${app.streak}',
+            color: Vivid.flame,
+            explain: app.streak == 1
+                ? 'Win streak: 1 boss defeated in a row'
+                : 'Win streak: ${app.streak} bosses defeated in a row',
+          ),
           const SizedBox(width: 8),
-          _StatChip(emoji: '⚡', value: fmtInt(week.teamScore), color: Vivid.sunShade),
+          _StatChip(
+            emoji: '⚡',
+            value: fmtInt(week.teamScore),
+            color: Vivid.sunShade,
+            explain: 'Team points this week: ${fmtInt(week.teamScore)}',
+          ),
           const SizedBox(width: 16),
         ],
         bottom: PreferredSize(
@@ -97,16 +109,24 @@ class _ShellState extends State<Shell> {
 }
 
 class _StatChip extends StatelessWidget {
-  const _StatChip({required this.emoji, required this.value, required this.color});
+  const _StatChip({required this.emoji, required this.value, required this.color, required this.explain});
 
   final String emoji;
   final String value;
   final Color color;
 
+  /// Shown when the chip is tapped (or long-pressed / hovered on web).
+  final String explain;
+
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(emoji, style: const TextStyle(fontSize: 20)),
-        const SizedBox(width: 3),
-        Text(value, style: GoogleFonts.nunito(fontWeight: FontWeight.w900, fontSize: 17, color: color)),
-      ]);
+  Widget build(BuildContext context) => Tooltip(
+        message: explain,
+        triggerMode: TooltipTriggerMode.tap,
+        showDuration: const Duration(seconds: 3),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 3),
+          Text(value, style: GoogleFonts.nunito(fontWeight: FontWeight.w900, fontSize: 17, color: color)),
+        ]),
+      );
 }

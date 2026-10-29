@@ -184,6 +184,12 @@ ThemeData buildTheme(Brightness brightness) {
       ),
     ),
     dividerTheme: DividerThemeData(color: s.line, thickness: 2),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(color: const Color(0xFF2C3640), borderRadius: BorderRadius.circular(12)),
+      textStyle: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      preferBelow: true,
+    ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: s.page,
       surfaceTintColor: Colors.transparent,

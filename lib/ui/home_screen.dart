@@ -31,8 +31,6 @@ class HomeScreen extends StatelessWidget {
           ],
           BossCard(week: week),
           const SizedBox(height: 14),
-          _TeamStats(week: week, streak: app.streak),
-          const SizedBox(height: 14),
           Leaderboard(week: week),
           const SizedBox(height: 14),
           QuestList(week: week, canHit: true),
@@ -75,42 +73,6 @@ class _InviteCard extends StatelessWidget {
         ),
       ]),
     );
-  }
-}
-
-class _TeamStats extends StatelessWidget {
-  const _TeamStats({required this.week, required this.streak});
-
-  final WeekResult week;
-  final int streak;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget tile(String emoji, String value, String label, Color color) => Expanded(
-          child: Raised(
-            face: color,
-            edge: Vivid.shadeOf(color),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(children: [
-              Text(emoji, style: const TextStyle(fontSize: 22)),
-              Text(value,
-                  style: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
-              Text(label.toUpperCase(),
-                  style: GoogleFonts.nunito(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 11,
-                      letterSpacing: 0.8)),
-            ]),
-          ),
-        );
-    return Row(children: [
-      tile('⚡', fmtInt(week.teamScore), 'team pts', Vivid.sun),
-      const SizedBox(width: 10),
-      tile('✅', '${week.tasksLogged}', 'tasks', Vivid.sky),
-      const SizedBox(width: 10),
-      tile('🔥', '$streak', 'win streak', Vivid.flame),
-    ]);
   }
 }
 

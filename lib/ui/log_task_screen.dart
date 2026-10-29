@@ -6,6 +6,7 @@ import '../data/backend.dart';
 import '../domain/catalog.dart';
 import '../domain/models.dart';
 import '../state/app_controller.dart';
+import 'boss_hit.dart';
 import 'common.dart';
 
 /// Opens the catalog, optionally narrowed to [only] (e.g. a quest's tasks).
@@ -33,6 +34,11 @@ Future<void> openLogTaskFor(BuildContext context, TaskDef task) async {
 Future<void> _announce(BuildContext context, _LogOutcome? message) async {
   if (message == null) return;
   final app = AppScope.of(context);
+  final hit = message.hit;
+  if (hit != null) {
+    await showBossHit(context, hit);
+    if (!context.mounted) return;
+  }
   showMessage(
     context,
     message.text,
@@ -69,10 +75,13 @@ Future<void> _announce(BuildContext context, _LogOutcome? message) async {
 }
 
 class _LogOutcome {
-  _LogOutcome(this.log, this.text, this.bossDefeated);
+  _LogOutcome(this.log, this.text, this.bossDefeated, this.hit);
   final TaskLog log;
   final String text;
   final String? bossDefeated;
+
+  /// Damage dealt to this week's boss, if the task counted for it.
+  final BossHit? hit;
 }
 
 const _categoryColors = <TaskCategory, Color>{
@@ -367,10 +376,19 @@ class _ConfirmLogSheetState extends State<_ConfirmLogSheet> {
           if (q.isComplete && !before.quests[i].isComplete) 'Quest complete: ${q.quest.name} +${q.quest.bonus}',
       ];
       final newlyDefeated = after.bossDefeated && !before.bossDefeated;
+      final hit = isCurrent && task.countsForBoss
+          ? BossHit(
+              boss: after.boss,
+              health: after.bossHealth,
+              damageBefore: before.bossDamage,
+              damageAfter: after.bossDamage,
+              projectile: task.category.emoji,
+            )
+          : null;
       if (mounted) {
         Navigator.pop(
           context,
-          _LogOutcome(log, parts.join(' · '), newlyDefeated ? after.boss.name : null),
+          _LogOutcome(log, parts.join(' · '), newlyDefeated ? after.boss.name : null, hit),
         );
       }
     } on BackendException catch (e) {
