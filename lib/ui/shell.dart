@@ -21,7 +21,7 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   int _tab = 0;
 
-  static const _titles = ['Our home', 'Activity', 'Achievements', 'Settings'];
+  static const _titles = ['Our home', 'Achievements'];
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +54,9 @@ class _ShellState extends State<Shell> {
             color: Vivid.sunShade,
             explain: 'Team points this week: ${fmtInt(week.teamScore)}',
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 4),
+          const _Menu(),
+          const SizedBox(width: 4),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(2),
@@ -63,10 +65,10 @@ class _ShellState extends State<Shell> {
       ),
       body: IndexedStack(
         index: _tab,
-        children: const [HomeScreen(), HistoryScreen(), WeeksScreen(), SettingsScreen()],
+        children: const [HomeScreen(), WeeksScreen()],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: _tab <= 1
+      floatingActionButton: _tab == 0
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(children: [
@@ -98,9 +100,7 @@ class _ShellState extends State<Shell> {
           onDestinationSelected: (i) => setState(() => _tab = i),
           destinations: const [
             NavigationDestination(icon: Text('🏠', style: TextStyle(fontSize: 24)), label: 'Home'),
-            NavigationDestination(icon: Text('📋', style: TextStyle(fontSize: 24)), label: 'Activity'),
             NavigationDestination(icon: Text('🏆', style: TextStyle(fontSize: 24)), label: 'Achievements'),
-            NavigationDestination(icon: Text('⚙️', style: TextStyle(fontSize: 24)), label: 'Settings'),
           ],
         ),
       ),
@@ -129,4 +129,60 @@ class _StatChip extends StatelessWidget {
           Text(value, style: GoogleFonts.nunito(fontWeight: FontWeight.w900, fontSize: 17, color: color)),
         ]),
       );
+}
+
+/// Top-right ☰ menu for screens that don't need a bottom-bar slot.
+class _Menu extends StatelessWidget {
+  const _Menu();
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<Widget>(
+        tooltip: 'Menu',
+        icon: const Icon(Icons.menu_rounded),
+        position: PopupMenuPosition.under,
+        onSelected: (page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page)),
+        itemBuilder: (context) => [
+          _item(context, '📋', 'Activity', const _MenuPage(title: 'Activity', child: HistoryScreen())),
+          _item(context, '⚙️', 'Settings', const _MenuPage(title: 'Settings', child: SettingsScreen())),
+        ],
+      );
+
+  PopupMenuItem<Widget> _item(BuildContext context, String emoji, String label, Widget page) => PopupMenuItem(
+        value: page,
+        child: Row(children: [
+          Text(emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 12),
+          Text(label, style: Theme.of(context).textTheme.titleSmall),
+        ]),
+      );
+}
+
+/// A screen opened from the menu, with a back button.
+class _MenuPage extends StatelessWidget {
+  const _MenuPage({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    // Signing out or leaving the household from here swaps the app's root;
+    // close this page so it doesn't linger on top.
+    if (AppScope.of(context).status != AppStatus.ready) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
+      });
+      return const Scaffold();
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(2),
+          child: Container(height: 2, color: Surface.of(context).line),
+        ),
+      ),
+      body: child,
+    );
+  }
 }

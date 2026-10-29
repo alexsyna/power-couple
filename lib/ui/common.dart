@@ -184,6 +184,15 @@ ThemeData buildTheme(Brightness brightness) {
       ),
     ),
     dividerTheme: DividerThemeData(color: s.line, thickness: 2),
+    popupMenuTheme: PopupMenuThemeData(
+      color: s.card,
+      surfaceTintColor: Colors.transparent,
+      elevation: 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: s.line, width: 2),
+      ),
+    ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(color: const Color(0xFF2C3640), borderRadius: BorderRadius.circular(12)),
       textStyle: GoogleFonts.nunito(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),

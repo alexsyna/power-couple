@@ -29,7 +29,8 @@ class BossHit {
 }
 
 /// Plays the hit: the task flies at the boss, it shakes, the damage pops
-/// out and the HP bar drains. Closes itself, or on tap. Skipped when the
+/// out and the HP bar drains, then holds on a short celebration so the win
+/// registers. Closes itself after ~5s, or on tap. Skipped when the
 /// user has asked the system to reduce motion.
 Future<void> showBossHit(BuildContext context, BossHit hit) async {
   if (MediaQuery.disableAnimationsOf(context)) return;
@@ -57,7 +58,7 @@ class _BossHitView extends StatefulWidget {
 }
 
 class _BossHitViewState extends State<_BossHitView> with SingleTickerProviderStateMixin {
-  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 2000))
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 4800))
     ..addStatusListener((s) {
       if (s == AnimationStatus.completed) _close();
     })
@@ -76,9 +77,19 @@ class _BossHitViewState extends State<_BossHitView> with SingleTickerProviderSta
     super.dispose();
   }
 
-  /// 0→1 over [a, b] of the timeline, eased.
+  /// The action plays over the first part of the run; the rest is a hold on
+  /// the result so the user can enjoy it.
+  static const _actionShare = 0.58;
+
+  /// Position within the action, 0→1 (stays at 1 during the hold).
+  double get _t => (_c.value / _actionShare).clamp(0.0, 1.0);
+
+  /// Position within the hold, 0→1.
+  double get _hold => ((_c.value - _actionShare) / (1 - _actionShare)).clamp(0.0, 1.0);
+
+  /// 0→1 over [a, b] of the action, eased.
   double _phase(double a, double b, [Curve curve = Curves.easeOut]) =>
-      curve.transform(((_c.value - a) / (b - a)).clamp(0.0, 1.0));
+      curve.transform(((_t - a) / (b - a)).clamp(0.0, 1.0));
 
   @override
   Widget build(BuildContext context) {
@@ -93,14 +104,16 @@ class _BossHitViewState extends State<_BossHitView> with SingleTickerProviderSta
           animation: _c,
           builder: (context, _) {
             final fly = _phase(0.0, 0.3, Curves.easeIn);
-            final impact = _c.value >= 0.3;
-            final shake = impact && _c.value < 0.55 ? math.sin(_c.value * 120) * 8 * (1 - _phase(0.3, 0.55)) : 0.0;
+            final impact = _t >= 0.3;
+            final shake = impact && _t < 0.55 ? math.sin(_t * 70) * 8 * (1 - _phase(0.3, 0.55)) : 0.0;
             final burst = _phase(0.3, 0.55);
             final drain = _phase(0.35, 0.75, Curves.easeInOut);
             final damageNow = hit.damageBefore + (hit.damage * drain).round();
             final hpLeft = (hit.health - damageNow).clamp(0, hit.health);
             final float = _phase(0.32, 0.85);
             final defeatedNow = hit.defeated && drain >= 1;
+            final confetti = _phase(0.3, 1.0, Curves.easeOutCubic);
+            final cheer = _phase(0.8, 1.0, Curves.easeOutBack);
 
             return SizedBox(
               width: 320,
@@ -150,13 +163,30 @@ class _BossHitViewState extends State<_BossHitView> with SingleTickerProviderSta
                               child: const Text('💥', style: TextStyle(fontSize: 90)),
                             ),
                           ),
+                        // Confetti bursting out of the boss.
+                        if (impact)
+                          for (var i = 0; i < 10; i++)
+                            Transform.translate(
+                              offset: Offset.fromDirection(
+                                i * 2 * math.pi / 10 - math.pi / 2,
+                                40 + 95 * confetti,
+                              ).translate(0, 30 * confetti * confetti),
+                              child: Opacity(
+                                opacity: (1 - _hold).clamp(0.0, 1.0),
+                                child: Transform.rotate(
+                                  angle: confetti * 6 + i,
+                                  child: Text(const ['🎉', '✨', '⭐'][i % 3], style: const TextStyle(fontSize: 22)),
+                                ),
+                              ),
+                            ),
                         // Damage number floating up.
                         if (impact)
                           Positioned(
                             right: 30,
                             top: 30 - 40 * float,
                             child: Opacity(
-                              opacity: (1 - _phase(0.75, 1.0)).clamp(0.0, 1.0),
+                              // Stays up through the hold so the damage registers.
+                              opacity: _phase(0.32, 0.4),
                               child: Text(
                                 '-${hit.damage}',
                                 style: GoogleFonts.nunito(
@@ -180,6 +210,24 @@ class _BossHitViewState extends State<_BossHitView> with SingleTickerProviderSta
                     Text(
                       defeatedNow ? 'Victory! 🎉' : '❤️ ${fmtInt(hpLeft)} HP left',
                       style: white.copyWith(fontSize: 16),
+                    ),
+                    const SizedBox(height: 14),
+                    Opacity(
+                      opacity: cheer.clamp(0.0, 1.0),
+                      child: Transform.scale(
+                        scale: 0.6 + 0.4 * cheer,
+                        child: Text(
+                          defeatedNow ? 'Boss down! Legendary teamwork 🏆' : 'Great hit! −${hit.damage} HP 💪',
+                          textAlign: TextAlign.center,
+                          style: white.copyWith(fontSize: 20, color: Vivid.sun),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Opacity(
+                      opacity: _phase(0.95, 1.0),
+                      child: Text('Tap to continue',
+                          style: white.copyWith(fontSize: 12, color: Colors.white.withValues(alpha: 0.75))),
                     ),
                   ]),
                 ),
