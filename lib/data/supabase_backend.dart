@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/missions.dart';
@@ -45,12 +47,24 @@ class SupabaseBackend implements Backend {
         return false;
       });
 
-  /// Profiles are created on first sign-in from the name given at sign-up,
-  /// because with email confirmation there is no session at sign-up time.
+  /// Where Google sends the user back: this page on web, the app's URL
+  /// scheme on phones (registered in Info.plist / AndroidManifest.xml).
+  static const _appCallback = 'org.powercouple.powercouple://login-callback';
+
+  @override
+  Future<void> signInWithGoogle() => _guard(() async {
+        final redirect = kIsWeb ? '${Uri.base.origin}${Uri.base.path}' : _appCallback;
+        await _client.auth.signInWithOAuth(OAuthProvider.google, redirectTo: redirect);
+      });
+
+  /// Profiles are created on first sign-in: from the name given at sign-up,
+  /// or the Google account's name. With email confirmation or Google there
+  /// is no session at sign-up time, so loadHousehold() also calls this.
   Future<void> _ensureProfile() async {
     final user = _client.auth.currentUser;
     if (user == null) return;
-    final name = (user.userMetadata?['display_name'] as String?)?.trim();
+    final meta = user.userMetadata ?? const {};
+    final name = ((meta['display_name'] ?? meta['full_name'] ?? meta['name']) as String?)?.trim();
     await _client.from('profiles').upsert(
       {'id': user.id, 'display_name': (name == null || name.isEmpty) ? 'Hero' : name},
       onConflict: 'id',
@@ -65,6 +79,7 @@ class SupabaseBackend implements Backend {
   Future<Household?> loadHousehold() => _guard(() async {
         final uid = currentUserId;
         if (uid == null) return null;
+        await _ensureProfile();
         final mine = await _client
             .from('couple_members')
             .select('couple_id')

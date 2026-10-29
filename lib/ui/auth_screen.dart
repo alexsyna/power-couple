@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../data/backend.dart';
@@ -21,6 +23,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _name = TextEditingController();
   late bool _signUp = widget.startWithSignUp;
   bool _busy = false;
+  bool _googleBusy = false;
 
   @override
   void dispose() {
@@ -49,6 +52,18 @@ class _AuthScreenState extends State<AuthScreen> {
       if (mounted) showMessage(context, e.message, color: Vivid.berry);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Opens Google's sign-in page; the app reacts when the session arrives.
+  Future<void> _google() async {
+    setState(() => _googleBusy = true);
+    try {
+      await AppScope.of(context).signInWithGoogle();
+    } on BackendException catch (e) {
+      if (mounted) showMessage(context, e.message, color: Vivid.berry);
+    } finally {
+      if (mounted) setState(() => _googleBusy = false);
     }
   }
 
@@ -85,6 +100,24 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                     ],
                     const SizedBox(height: 24),
+                    ChunkyButton(
+                      label: 'Continue with Google',
+                      outlined: true,
+                      color: Surface.of(context).ink,
+                      icon: const _GoogleMark(),
+                      busy: _googleBusy,
+                      onPressed: _busy ? null : _google,
+                    ),
+                    const SizedBox(height: 18),
+                    Row(children: [
+                      const Expanded(child: Divider()),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('or with email', style: theme.textTheme.bodySmall),
+                      ),
+                      const Expanded(child: Divider()),
+                    ]),
+                    const SizedBox(height: 18),
                     if (_signUp) ...[
                       TextFormField(
                         controller: _name,
@@ -131,4 +164,46 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
   }
+}
+
+/// Google's four-colour "G", drawn so no image asset is needed.
+class _GoogleMark extends StatelessWidget {
+  const _GoogleMark();
+
+  @override
+  Widget build(BuildContext context) =>
+      const SizedBox.square(dimension: 20, child: CustomPaint(painter: _GoogleMarkPainter()));
+}
+
+class _GoogleMarkPainter extends CustomPainter {
+  const _GoogleMarkPainter();
+
+  static const _blue = Color(0xFF4285F4);
+  static const _green = Color(0xFF34A853);
+  static const _yellow = Color(0xFFFBBC05);
+  static const _red = Color(0xFFEA4335);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width;
+    final stroke = s * 0.2;
+    final rect = Rect.fromCircle(center: Offset(s / 2, s / 2), radius: (s - stroke) / 2);
+    Paint arc(Color c) => Paint()
+      ..color = c
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke;
+    const deg = math.pi / 180;
+    // Angles run clockwise from 3 o'clock; the opening sits between the red
+    // (ending upper right) and the blue crossbar at 3 o'clock.
+    canvas.drawArc(rect, 0, 45 * deg, false, arc(_blue));
+    canvas.drawArc(rect, 45 * deg, 90 * deg, false, arc(_green));
+    canvas.drawArc(rect, 135 * deg, 90 * deg, false, arc(_yellow));
+    canvas.drawArc(rect, 225 * deg, 90 * deg, false, arc(_red));
+    // The crossbar of the G.
+    canvas.drawRect(Rect.fromLTRB(s / 2, s / 2 - stroke / 2, s, s / 2 + stroke / 2),
+        Paint()..color = _blue);
+  }
+
+  @override
+  bool shouldRepaint(_GoogleMarkPainter old) => false;
 }

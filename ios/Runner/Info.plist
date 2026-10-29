@@ -6,6 +6,17 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.powercouple.powercouple</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>org.powercouple.powercouple</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a profile photo your partner will see.</string>
 	<key>NSCameraUsageDescription</key>

@@ -23,6 +23,10 @@ abstract class Backend {
     required String displayName,
   });
 
+  /// Starts Google sign-in (creates the account on first use). Completes
+  /// once the browser has opened; the session arrives via [authChanges].
+  Future<void> signInWithGoogle();
+
   Future<void> signOut();
 
   /// The signed-in user's household, or null if they have not joined one.

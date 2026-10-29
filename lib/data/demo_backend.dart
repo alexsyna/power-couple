@@ -95,6 +95,9 @@ class DemoBackend implements Backend {
   }
 
   @override
+  Future<void> signInWithGoogle() => signIn(email: 'demo@example.com', password: '');
+
+  @override
   Future<bool> signUp({
     required String email,
     required String password,

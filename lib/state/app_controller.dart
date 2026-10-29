@@ -201,6 +201,8 @@ class AppController extends ChangeNotifier {
   Future<void> signIn(String email, String password) =>
       backend.signIn(email: email, password: password);
 
+  Future<void> signInWithGoogle() => backend.signInWithGoogle();
+
   Future<bool> signUp(String email, String password, String name) =>
       backend.signUp(email: email, password: password, displayName: name);
 
