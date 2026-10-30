@@ -12,6 +12,7 @@ import 'home_screen.dart';
 import 'log_task_screen.dart';
 import 'missions.dart';
 import 'settings_screen.dart';
+import 'shop.dart';
 import 'weeks_screen.dart';
 
 class Shell extends StatefulWidget {
@@ -147,6 +148,7 @@ class _Menu extends StatelessWidget {
         onSelected: (page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page)),
         itemBuilder: (context) => [
           _item(context, '📋', 'Activity', const _MenuPage(title: 'Activity', child: HistoryScreen())),
+          _item(context, '🛍️', 'Shop', const ShopPage()),
           _item(context, '⚙️', 'Settings', const _MenuPage(title: 'Settings', child: SettingsScreen())),
         ],
       );
