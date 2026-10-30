@@ -28,7 +28,7 @@ Future<void> main() async {
     backend = SupabaseBackend(Supabase.instance.client);
   }
   final prefs = await SharedPreferences.getInstance();
-  runApp(PowerCoupleApp(controller: AppController(backend), prefs: prefs));
+  runApp(PowerCoupleApp(controller: AppController(backend, prefs: prefs), prefs: prefs));
 }
 
 const _introSeenKey = 'intro_seen';

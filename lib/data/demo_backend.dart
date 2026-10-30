@@ -92,7 +92,9 @@ class DemoBackend implements Backend {
           day: day,
           questionId: q.id,
           text: m == alex ? 'Honestly? Our Sunday pancakes.' : 'The trip to the lake last spring 🥰',
-          createdAt: now.subtract(Duration(days: i, hours: m == alex ? 3 : 2)),
+          // Alex answers last except yesterday, when Sam completes the day
+          // after Alex: a reveal Alex hasn't seen yet.
+          createdAt: now.subtract(Duration(days: i, hours: (m == alex) == (i == 1) ? 3 : 2)),
         ));
       }
     }

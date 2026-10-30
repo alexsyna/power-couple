@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/backend.dart';
 import '../domain/badges.dart';
@@ -16,7 +17,7 @@ enum AppStatus { loading, signedOut, needsHousehold, ready }
 /// App-wide state: who is signed in, their household, and its task logs.
 /// Every score shown in the UI is derived from [logs] by [engine].
 class AppController extends ChangeNotifier {
-  AppController(this.backend) {
+  AppController(this.backend, {this.prefs}) {
     _authSub = backend.authChanges.listen((_) => refresh());
     // Live updates pause while the app is backgrounded (always on iOS), so
     // catch up with the partner's changes whenever it comes back.
@@ -25,6 +26,9 @@ class AppController extends ChangeNotifier {
   }
 
   final Backend backend;
+
+  /// Device storage for which Bond reveals have been shown here.
+  final SharedPreferences? prefs;
 
   AppStatus status = AppStatus.loading;
   Household? household;
@@ -152,7 +156,40 @@ class AppController extends ChangeNotifier {
   bool get partnerAnsweredToday => partner != null && _answered(partner!.userId, today);
 
   /// Partner answered and is waiting for me: drives the nav badge.
-  bool get bondNeedsMe => partnerAnsweredToday && !iAnsweredToday;
+  /// Something on the Bond tab needs me: my partner is waiting for my
+  /// answer, or a reveal happened that I haven't seen yet.
+  bool get bondNeedsMe =>
+      (partnerAnsweredToday && !iAnsweredToday) || missedReveals.any((r) => !isRevealSeen(r.$1));
+
+  // Reveals shown on this device. Days shown during this session stay listed
+  // until the app restarts, so the card doesn't vanish right after its flip.
+  final Set<DateTime> _shownThisSession = {};
+
+  static String _seenKey(DateTime day) => 'bond_revealed_${dateKey(day)}';
+
+  bool isRevealSeen(DateTime day) => prefs?.getBool(_seenKey(day)) ?? _shownThisSession.contains(day);
+
+  void markRevealSeen(DateTime day) {
+    if (_shownThisSession.add(day)) {
+      prefs?.setBool(_seenKey(day), true);
+      // Next frame, so the badge updates without rebuilding mid-build.
+      WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
+    }
+  }
+
+  /// Past days (last 7) that were revealed by my partner answering after me,
+  /// so I never saw the flip; newest first. Kept while shown this session.
+  List<(DateTime day, Answer mine, Answer theirs)> get missedReveals {
+    final weekAgo = today.subtract(const Duration(days: 7));
+    return [
+      for (final (day, _, mine, theirs) in revealedDays)
+        if (day != today &&
+            day.isAfter(weekAgo) &&
+            theirs.createdAt.isAfter(mine.createdAt) &&
+            (!isRevealSeen(day) || _shownThisSession.contains(day)))
+          (day, mine, theirs),
+    ];
+  }
 
   Answer? answerOn(String? userId, DateTime day) {
     for (final a in answers) {

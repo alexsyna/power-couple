@@ -2,10 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 
 import '../data/backend.dart';
-import '../domain/missions.dart' show dateKey;
 import '../domain/questions.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
@@ -26,6 +25,10 @@ class BondScreen extends StatelessWidget {
       children: [
         const _BondLevelCard(),
         const SizedBox(height: 14),
+        for (final (day, mine, theirs) in app.missedReveals) ...[
+          _MissedRevealCard(day: day, mine: mine, theirs: theirs),
+          const SizedBox(height: 14),
+        ],
         if (partner == null)
           const SectionCard(
             title: '💌 Waiting for your partner',
@@ -86,19 +89,13 @@ class _TodayCard extends StatefulWidget {
   State<_TodayCard> createState() => _TodayCardState();
 }
 
-class _TodayCardState extends State<_TodayCard> with SingleTickerProviderStateMixin {
+class _TodayCardState extends State<_TodayCard> {
   final _text = TextEditingController();
-  late final _flip = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
   bool _busy = false;
-
-  /// Whether today's reveal has been shown on this device.
-  bool? _seen;
-  String? _seenDay;
 
   @override
   void dispose() {
     _text.dispose();
-    _flip.dispose();
     super.dispose();
   }
 
@@ -117,30 +114,6 @@ class _TodayCardState extends State<_TodayCard> with SingleTickerProviderStateMi
     }
   }
 
-  /// Plays the flip once per day per device, the first time both answers
-  /// are available while this card is on screen.
-  Future<void> _maybeReveal(String day) async {
-    if (_seenDay == day) return;
-    _seenDay = day;
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'bond_revealed_$day';
-    final seen = prefs.getBool(key) ?? false;
-    if (!mounted) return;
-    setState(() => _seen = seen);
-    if (seen) {
-      _flip.value = 1;
-      return;
-    }
-    await prefs.setBool(key, true);
-    if (!mounted) return;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _flip.value = 1;
-    } else {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      if (mounted) await _flip.forward(from: 0);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -151,8 +124,6 @@ class _TodayCardState extends State<_TodayCard> with SingleTickerProviderStateMi
     final theirs = app.answerOn(partner.userId, today);
     final revealed = mine != null && theirs != null;
     final myQuestion = mine?.question ?? app.questionToday(app.me);
-
-    if (revealed) _maybeReveal(dateKey(today));
 
     return SectionCard(
       title: '💬 Today\'s questions',
@@ -193,35 +164,7 @@ class _TodayCardState extends State<_TodayCard> with SingleTickerProviderStateMi
             iAnswered: mine != null,
           ),
         ] else ...[
-          AnimatedBuilder(
-            animation: _flip,
-            builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              _Flip(
-                t: _seen == null ? 0 : _flip.value,
-                back: _LockedCard(name: 'You', answered: true, iAnswered: true),
-                front: _QuestionCard(
-                  who: 'You',
-                  userId: app.me,
-                  question: mine.question.text,
-                  pack: mine.question.pack,
-                  answer: mine.text,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _Flip(
-                // Second card turns a beat later.
-                t: _seen == null ? 0 : ((_flip.value - 0.25) / 0.75).clamp(0.0, 1.0),
-                back: _LockedCard(name: partner.displayName, answered: true, iAnswered: true),
-                front: _QuestionCard(
-                  who: partner.displayName,
-                  userId: partner.userId,
-                  question: theirs.question.text,
-                  pack: theirs.question.pack,
-                  answer: theirs.text,
-                ),
-              ),
-            ]),
-          ),
+          RevealCards(day: today, mine: mine, theirs: theirs),
           const SizedBox(height: 12),
           Text(
             'Bond level up! 💞 Come back tomorrow for new questions.',
@@ -374,6 +317,111 @@ class _PacksTeaser extends StatelessWidget {
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ShopPage())),
           ),
         ],
+      ]),
+    );
+  }
+}
+
+/// Both answer cards for a revealed day. The first time a day is shown on
+/// this device the two cards flip over one after the other; after that they
+/// show face up.
+class RevealCards extends StatefulWidget {
+  const RevealCards({super.key, required this.day, required this.mine, required this.theirs});
+
+  final DateTime day;
+  final Answer mine;
+  final Answer theirs;
+
+  @override
+  State<RevealCards> createState() => _RevealCardsState();
+}
+
+class _RevealCardsState extends State<RevealCards> with SingleTickerProviderStateMixin {
+  late final _flip = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    final app = AppScope.of(context);
+    if (app.isRevealSeen(widget.day) || MediaQuery.disableAnimationsOf(context)) {
+      _flip.value = 1;
+      app.markRevealSeen(widget.day);
+      return;
+    }
+    app.markRevealSeen(widget.day);
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) _flip.forward(from: 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _flip.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final partner = app.partner;
+    final partnerName = partner?.displayName ?? 'Partner';
+    return AnimatedBuilder(
+      animation: _flip,
+      builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _Flip(
+          t: _flip.value,
+          back: const _LockedCard(name: 'You', answered: true, iAnswered: true),
+          front: _QuestionCard(
+            who: 'You',
+            userId: app.me,
+            question: widget.mine.question.text,
+            pack: widget.mine.question.pack,
+            answer: widget.mine.text,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _Flip(
+          // Second card turns a beat later.
+          t: ((_flip.value - 0.25) / 0.75).clamp(0.0, 1.0),
+          back: _LockedCard(name: partnerName, answered: true, iAnswered: true),
+          front: _QuestionCard(
+            who: partnerName,
+            userId: widget.theirs.userId,
+            question: widget.theirs.question.text,
+            pack: widget.theirs.question.pack,
+            answer: widget.theirs.text,
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// A past day my partner completed after I'd answered, which I haven't seen.
+class _MissedRevealCard extends StatelessWidget {
+  const _MissedRevealCard({required this.day, required this.mine, required this.theirs});
+
+  final DateTime day;
+  final Answer mine;
+  final Answer theirs;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final theme = Theme.of(context);
+    final yesterday = app.today.subtract(const Duration(days: 1));
+    final when = day == yesterday ? 'Yesterday' : DateFormat('EEEE d MMM').format(day);
+    return SectionCard(
+      title: '💌 $when\'s answers',
+      trailing: const Pill('Missed reveal', color: Vivid.berry),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('${app.partner?.displayName ?? 'Your partner'} answered after you. Here\'s what you both said:',
+            style: theme.textTheme.bodySmall),
+        const SizedBox(height: 12),
+        RevealCards(day: day, mine: mine, theirs: theirs),
       ]),
     );
   }
