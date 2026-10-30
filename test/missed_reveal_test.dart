@@ -21,8 +21,10 @@ void main() {
 
     app.markRevealSeen(day);
     expect(app.isRevealSeen(day), isTrue);
-    // Still listed for this session so the card doesn't vanish after the flip.
-    expect(app.missedReveals.length, 1);
+    expect(app.missedReveals, isEmpty);
+    // The day stays browsable in the 7-day history.
+    expect(app.recentReveals.map((r) => r.$1), contains(day));
+    expect(app.recentReveals.length, lessThanOrEqualTo(AppController.bondHistoryDays));
 
     // A fresh session no longer lists it.
     final next = AppController(DemoBackend(), prefs: prefs);

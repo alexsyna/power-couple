@@ -158,11 +158,10 @@ class AppController extends ChangeNotifier {
   /// Partner answered and is waiting for me: drives the nav badge.
   /// Something on the Bond tab needs me: my partner is waiting for my
   /// answer, or a reveal happened that I haven't seen yet.
-  bool get bondNeedsMe =>
-      (partnerAnsweredToday && !iAnsweredToday) || missedReveals.any((r) => !isRevealSeen(r.$1));
+  bool get bondNeedsMe => (partnerAnsweredToday && !iAnsweredToday) || missedReveals.isNotEmpty;
 
-  // Reveals shown on this device. Days shown during this session stay listed
-  // until the app restarts, so the card doesn't vanish right after its flip.
+  // Reveals shown on this device during this session (fallback when there's
+  // no device storage, e.g. in tests).
   final Set<DateTime> _shownThisSession = {};
 
   static String _seenKey(DateTime day) => 'bond_revealed_${dateKey(day)}';
@@ -177,19 +176,25 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  /// Past days (last 7) that were revealed by my partner answering after me,
-  /// so I never saw the flip; newest first. Kept while shown this session.
-  List<(DateTime day, Answer mine, Answer theirs)> get missedReveals {
-    final weekAgo = today.subtract(const Duration(days: 7));
-    return [
+  /// How far back the Bond history goes.
+  static const bondHistoryDays = 7;
+
+  /// Revealed past days within the history window, newest first.
+  List<(DateTime day, Answer mine, Answer theirs)> get recentReveals {
+    final cutoff = today.subtract(const Duration(days: bondHistoryDays + 1));
+    final out = [
       for (final (day, _, mine, theirs) in revealedDays)
-        if (day != today &&
-            day.isAfter(weekAgo) &&
-            theirs.createdAt.isAfter(mine.createdAt) &&
-            (!isRevealSeen(day) || _shownThisSession.contains(day)))
-          (day, mine, theirs),
+        if (day != today && day.isAfter(cutoff)) (day, mine, theirs),
     ];
+    return out..sort((a, b) => b.$1.compareTo(a.$1));
   }
+
+  /// Recent days my partner completed after I'd answered, which this device
+  /// hasn't shown yet: I never saw their flip. Newest first.
+  List<(DateTime day, Answer mine, Answer theirs)> get missedReveals => [
+        for (final r in recentReveals)
+          if (r.$3.createdAt.isAfter(r.$2.createdAt) && !isRevealSeen(r.$1)) r,
+      ];
 
   Answer? answerOn(String? userId, DateTime day) {
     for (final a in answers) {

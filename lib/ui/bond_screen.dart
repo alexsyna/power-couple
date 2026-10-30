@@ -25,17 +25,13 @@ class BondScreen extends StatelessWidget {
       children: [
         const _BondLevelCard(),
         const SizedBox(height: 14),
-        for (final (day, mine, theirs) in app.missedReveals) ...[
-          _MissedRevealCard(day: day, mine: mine, theirs: theirs),
-          const SizedBox(height: 14),
-        ],
         if (partner == null)
           const SectionCard(
             title: '💌 Waiting for your partner',
             child: Text('Daily questions start once your partner joins with your invite code.'),
           )
         else
-          const _TodayCard(),
+          const _QuestionDays(),
         const SizedBox(height: 14),
         const _PacksTeaser(),
       ],
@@ -400,29 +396,129 @@ class _RevealCardsState extends State<RevealCards> with SingleTickerProviderStat
   }
 }
 
-/// A past day my partner completed after I'd answered, which I haven't seen.
-class _MissedRevealCard extends StatelessWidget {
-  const _MissedRevealCard({required this.day, required this.mine, required this.theirs});
+/// Today's questions, with the last week of revealed days one swipe (or ‹)
+/// away. Always opens on today; swiping right goes back in time.
+class _QuestionDays extends StatefulWidget {
+  const _QuestionDays();
 
-  final DateTime day;
-  final Answer mine;
-  final Answer theirs;
+  @override
+  State<_QuestionDays> createState() => _QuestionDaysState();
+}
+
+class _QuestionDaysState extends State<_QuestionDays> {
+  /// 0 = today, 1 = the most recent revealed past day, and so on.
+  int _back = 0;
+
+  /// Direction of the last move, for the slide animation (+1 = into the past).
+  int _dir = 1;
+
+  void _go(int back, int count) {
+    final target = back.clamp(0, count);
+    if (target == _back) return;
+    setState(() {
+      _dir = target > _back ? 1 : -1;
+      _back = target;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
-    final yesterday = app.today.subtract(const Duration(days: 1));
-    final when = day == yesterday ? 'Yesterday' : DateFormat('EEEE d MMM').format(day);
-    return SectionCard(
-      title: '💌 $when\'s answers',
-      trailing: const Pill('Missed reveal', color: Vivid.berry),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('${app.partner?.displayName ?? 'Your partner'} answered after you. Here\'s what you both said:',
-            style: theme.textTheme.bodySmall),
-        const SizedBox(height: 12),
-        RevealCards(day: day, mine: mine, theirs: theirs),
-      ]),
-    );
+    final s = Surface.of(context);
+    final past = app.recentReveals;
+    final back = _back.clamp(0, past.length);
+    final missed = app.missedReveals;
+
+    String label(int i) {
+      if (i == 0) return 'Today';
+      final day = past[i - 1].$1;
+      if (day == app.today.subtract(const Duration(days: 1))) return 'Yesterday';
+      return DateFormat('EEE d MMM').format(day);
+    }
+
+    final Widget page = back == 0
+        ? const _TodayCard()
+        : SectionCard(
+            title: '💬 ${label(back)}\'s questions',
+            trailing: const Pill('Revealed', color: Vivid.grass),
+            child: RevealCards(day: past[back - 1].$1, mine: past[back - 1].$2, theirs: past[back - 1].$3),
+          );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (past.isNotEmpty)
+        Row(children: [
+          IconButton(
+            tooltip: 'Earlier',
+            onPressed: back < past.length ? () => _go(back + 1, past.length) : null,
+            icon: const Icon(Icons.chevron_left_rounded, size: 30),
+          ),
+          Expanded(
+            child: Column(children: [
+              Text(label(back), style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                // Oldest on the left, today on the right, like a calendar.
+                for (var i = past.length; i >= 0; i--)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: i == back ? 18 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: i == back ? Vivid.berry : s.line,
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                  ),
+              ]),
+            ]),
+          ),
+          IconButton(
+            tooltip: 'Later',
+            onPressed: back > 0 ? () => _go(back - 1, past.length) : null,
+            icon: const Icon(Icons.chevron_right_rounded, size: 30),
+          ),
+        ]),
+      if (back == 0 && missed.isNotEmpty) ...[
+        Center(
+          child: ActionChip(
+            avatar: const Text('💌'),
+            label: Text(missed.length == 1
+                ? 'You missed ${label(past.indexOf(missed.first) + 1).toLowerCase()}\'s reveal'
+                : 'You missed ${missed.length} reveals'),
+            onPressed: () => _go(past.indexOf(missed.first) + 1, past.length),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+      GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          if (v > 250) _go(back + 1, past.length); // swipe right: further back
+          if (v < -250) _go(back - 1, past.length); // swipe left: towards today
+        },
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (current, previous) =>
+              Stack(alignment: Alignment.topCenter, children: [...previous, ?current]),
+          transitionBuilder: (child, anim) {
+            final incoming = child.key == ValueKey(back);
+            // Into the past: new page comes from the left, old leaves right.
+            final from = Offset(incoming ? -_dir * 1.0 : _dir * 1.0, 0);
+            return ClipRect(
+              child: SlideTransition(
+                // The outgoing page runs this in reverse, sliding out to `from`.
+                position: Tween(begin: from, end: Offset.zero).animate(anim),
+                child: child,
+              ),
+            );
+          },
+          child: KeyedSubtree(key: ValueKey(back), child: page),
+        ),
+      ),
+    ]);
   }
 }
