@@ -128,9 +128,14 @@ class BossCard extends StatelessWidget {
           Text(defeated ? 'Victory! 🎉' : '❤️ ${fmtInt(week.bossRemaining)} HP',
               style: white.copyWith(fontSize: 14)),
         ]),
+        if (AppScope.of(context).bondLevel > 0) ...[
+          const SizedBox(height: 8),
+          Pill('💞 Bond level ${AppScope.of(context).bondLevel}: +${AppScope.of(context).bondLevel} dmg per hit',
+              color: Vivid.shadeOf(color), filled: true),
+        ],
         if (week.teamScore != week.bossDamage) ...[
           const SizedBox(height: 6),
-          Text('Only catalog tasks hit the boss. Quest bonuses and "Other" tasks add to team points.',
+          Text('Catalog tasks and your bond bonus hit the boss. Quest bonuses and "Other" tasks add to team points.',
               style: white.copyWith(
                   fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white.withValues(alpha: 0.85))),
         ],

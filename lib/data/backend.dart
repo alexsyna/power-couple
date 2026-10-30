@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../domain/missions.dart';
 import '../domain/models.dart';
+import '../domain/questions.dart';
 
 /// Everything the app needs from storage and auth. The Supabase implementation
 /// is the real one; [DemoBackend] runs fully on-device for previews.
@@ -66,6 +67,22 @@ abstract class Backend {
   });
 
   Future<void> undoLog(String logId);
+
+  /// Who answered Bond questions on which day, for the whole household.
+  Future<List<AnswerMeta>> loadAnswerLog(String householdId);
+
+  /// Answers I can read: mine, and my partner's on days I answered too.
+  Future<List<Answer>> loadAnswers(String householdId);
+
+  Future<void> submitAnswer({
+    required String householdId,
+    required DateTime day,
+    required String questionId,
+    required String text,
+  });
+
+  /// Fake purchase for now: unlocks the packs for the whole household.
+  Future<void> unlockPacks(String householdId, Set<QuestionPack> packs);
 
   Future<List<Mission>> loadMissions(String householdId);
 

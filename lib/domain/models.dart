@@ -1,4 +1,5 @@
 import 'catalog.dart';
+import 'questions.dart';
 
 /// How a person is pictured: their initial, a preset avatar, or a photo.
 enum AvatarKind {
@@ -43,6 +44,7 @@ class Household {
     required this.inviteCode,
     required this.createdAt,
     required this.members,
+    this.unlockedPacks = const {QuestionPack.light},
   });
 
   final String id;
@@ -52,6 +54,9 @@ class Household {
   final String inviteCode;
   final DateTime createdAt;
   final List<Member> members;
+
+  /// Bond question packs this household can use (shared by both partners).
+  final Set<QuestionPack> unlockedPacks;
 
   bool get isComplete => members.length >= 2;
 
@@ -67,6 +72,7 @@ class Household {
     bool? hasKids,
     bool? hasPets,
     List<Member>? members,
+    Set<QuestionPack>? unlockedPacks,
   }) =>
       Household(
         id: id,
@@ -76,6 +82,7 @@ class Household {
         inviteCode: inviteCode,
         createdAt: createdAt,
         members: members ?? this.members,
+        unlockedPacks: unlockedPacks ?? this.unlockedPacks,
       );
 }
 

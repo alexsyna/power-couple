@@ -8,6 +8,7 @@ import 'common.dart';
 import 'intro_screen.dart';
 import 'onboarding_screen.dart';
 import 'profile_card.dart';
+import 'shop.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -97,6 +98,8 @@ class SettingsScreen extends StatelessWidget {
             ),
           ]),
         ),
+        const SizedBox(height: 14),
+        const ShopCard(),
         const SizedBox(height: 14),
         if (backend is DemoBackend) ...[
           SectionCard(

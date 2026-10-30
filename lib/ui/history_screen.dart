@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/backend.dart';
 import '../domain/calendar.dart';
 import '../domain/missions.dart';
+import '../domain/questions.dart';
 import '../domain/models.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
@@ -84,6 +85,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final entries = <(DateTime, Object)>[
       for (final l in logs) (l.doneAt, l),
       for (final m in missionsDone) (m.completedAt!, m),
+      for (final b in app.revealedDays)
+        if (!cal.weekOf(b.$2).isBefore(from) && cal.weekOf(b.$2).isBefore(to)) (b.$2, b),
     ]..sort((x, y) => y.$1.compareTo(x.$1));
 
     final today = cal.localDate(app.now);
@@ -98,6 +101,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
           child: Text(dayLabel(d, today).toUpperCase(),
               style: theme.textTheme.labelLarge?.copyWith(color: s.muted, letterSpacing: 1)),
         ));
+      }
+      if (entry is (DateTime, DateTime, Answer, Answer)) {
+        children.add(Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _BondTile(mine: entry.$3, theirs: entry.$4),
+        ));
+        continue;
       }
       if (entry is Mission) {
         children.add(Padding(
@@ -303,6 +313,48 @@ class _MissionTile extends StatelessWidget {
             }
           },
         ),
+      ]),
+    );
+  }
+}
+
+/// A revealed Bond day: both questions and answers.
+class _BondTile extends StatelessWidget {
+  const _BondTile({required this.mine, required this.theirs});
+
+  final Answer mine;
+  final Answer theirs;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget qa(Answer a) => Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            PersonAvatar(userId: a.userId, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(a.question.text, style: theme.textTheme.bodySmall),
+                Text(a.text, style: theme.textTheme.titleSmall),
+              ]),
+            ),
+          ]),
+        );
+    return Raised(
+      face: Vivid.berry.withValues(alpha: 0.08),
+      edge: Vivid.berry.withValues(alpha: 0.35),
+      border: Vivid.berry.withValues(alpha: 0.35),
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          const EmojiBadge('💞', color: Vivid.berry, size: 36),
+          const SizedBox(width: 10),
+          Expanded(child: Text('Bond questions revealed', style: theme.textTheme.titleSmall)),
+          const Pill('+1 bond', color: Vivid.berry),
+        ]),
+        qa(mine),
+        qa(theirs),
       ]),
     );
   }

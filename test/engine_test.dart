@@ -195,4 +195,23 @@ void main() {
     expect(history.length, 4);
     expect(e.streak(history, now), 2);
   });
+
+  test('bond level adds bonus damage to each boss hit from then on', () {
+    final e = ScoringEngine(household(), bondReveals: [
+      DateTime.utc(2026, 10, 20, 8),
+      DateTime.utc(2026, 10, 21, 8),
+    ]);
+    final logs = [
+      log('dishes', a, DateTime.utc(2026, 10, 20, 7)), // level 0: 20
+      log('dishes', a, DateTime.utc(2026, 10, 20, 9)), // level 1: 21
+      log('cook_meal', b, DateTime.utc(2026, 10, 21, 9)), // level 2: 42
+      log(otherTaskId, a, DateTime.utc(2026, 10, 21, 10), name: 'x'), // no boss damage
+    ];
+    final w = e.week(monday, logs);
+    expect(w.bossDamage, 20 + 21 + 42);
+    expect(w.bondBonusDamage, 3);
+    // Personal and team points are unaffected.
+    expect(w.pointsByPerson, {a: 50, b: 40});
+    expect(w.taskPoints, 90);
+  });
 }

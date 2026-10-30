@@ -2,15 +2,23 @@ import 'calendar.dart';
 import 'catalog.dart';
 import 'content.dart';
 import 'models.dart';
+import 'questions.dart';
 
 /// Derives everything the app shows from the raw task logs. Nothing here is
 /// stored: past weeks are recalculated whenever logs are backdated or undone,
 /// so boss outcomes, quests and streaks can change after the fact.
 class ScoringEngine {
-  ScoringEngine(this.household) : calendar = HouseholdCalendar(household.timezone);
+  ScoringEngine(this.household, {this.bondReveals = const []})
+      : calendar = HouseholdCalendar(household.timezone);
 
   final Household household;
   final HouseholdCalendar calendar;
+
+  /// When each Bond question day was revealed, sorted. Every boss hit deals
+  /// extra damage equal to the bond level at the time of the task.
+  final List<DateTime> bondReveals;
+
+  int bondLevelAt(DateTime at) => bondLevelFrom(bondReveals, at);
 
   DateTime get startDate => calendar.localDate(household.createdAt);
 
@@ -26,11 +34,16 @@ class ScoringEngine {
     final points = <String, int>{for (final m in household.members) m.userId: 0};
     var taskPoints = 0;
     var damage = 0;
+    var bondBonus = 0;
     final categories = <TaskCategory, int>{};
     for (final log in logs) {
       final task = log.task;
       taskPoints += task.points;
-      if (task.countsForBoss) damage += task.points;
+      if (task.countsForBoss) {
+        final bonus = bondLevelAt(log.doneAt);
+        damage += task.points + bonus;
+        bondBonus += bonus;
+      }
       categories.update(task.category, (n) => n + 1, ifAbsent: () => 1);
       log.pointsByPerson().forEach((who, p) {
         points.update(who, (n) => n + p, ifAbsent: () => p);
@@ -53,6 +66,7 @@ class ScoringEngine {
       boss: boss,
       bossHealth: health,
       bossDamage: damage,
+      bondBonusDamage: bondBonus,
       pointsByPerson: points,
       taskPoints: taskPoints,
       questBonus: questBonus,
@@ -165,6 +179,7 @@ class WeekResult {
     required this.boss,
     required this.bossHealth,
     required this.bossDamage,
+    this.bondBonusDamage = 0,
     required this.pointsByPerson,
     required this.taskPoints,
     required this.questBonus,
@@ -177,8 +192,12 @@ class WeekResult {
   final BossDef boss;
   final int bossHealth;
 
-  /// Base points of eligible tasks ("Other" excluded, quest bonuses excluded).
+  /// Base points of eligible tasks plus the bond bonus per hit ("Other" and
+  /// quest bonuses excluded).
   final int bossDamage;
+
+  /// The part of [bossDamage] that came from the bond bonus.
+  final int bondBonusDamage;
 
   /// Personal task points, keyed by user id. Quest bonuses are team-only.
   final Map<String, int> pointsByPerson;

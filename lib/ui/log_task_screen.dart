@@ -370,7 +370,7 @@ class _ConfirmLogSheetState extends State<_ConfirmLogSheet> {
       final mine = log.pointsByPerson()[app.me] ?? 0;
       final parts = <String>[
         '+$mine pts${_shared ? ' (shared)' : ''} 🎉',
-        if (isCurrent && task.countsForBoss) '${task.points} dmg to ${after.boss.name}',
+        if (isCurrent && task.countsForBoss) '${after.bossDamage - before.bossDamage} dmg to ${after.boss.name}',
         if (!isCurrent) 'added to week of ${weekLabel(weekStart)}',
         for (final (i, q) in after.quests.indexed)
           if (q.isComplete && !before.quests[i].isComplete) 'Quest complete: ${q.quest.name} +${q.quest.bonus}',

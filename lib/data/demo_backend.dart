@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
 
+import '../domain/calendar.dart';
 import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
+import '../domain/questions.dart';
 import 'backend.dart';
 
 /// In-memory backend with two partners and a few weeks of seeded history.
@@ -24,6 +26,7 @@ class DemoBackend implements Backend {
   late Household _household;
   final List<TaskLog> _logs = [];
   final List<Mission> _missions = [];
+  final List<Answer> _answers = [];
   String? _user = alex.userId;
   var _seq = 0;
 
@@ -71,7 +74,28 @@ class DemoBackend implements Backend {
         ));
       }
     }
-    final today = DateTime.utc(now.year, now.month, now.day);
+    final today = HouseholdCalendar(_household.timezone).localDate(now);
+    // Six revealed Bond days (bond level 6), and Sam has answered today.
+    for (var i = 6; i >= 0; i--) {
+      final day = today.subtract(Duration(days: i));
+      for (final m in [alex, sam]) {
+        if (i == 0 && m == alex) continue;
+        final q = questionFor(
+          coupleId: _household.id,
+          memberIds: [alex.userId, sam.userId],
+          userId: m.userId,
+          day: day,
+          unlocked: _household.unlockedPacks,
+        );
+        _answers.add(Answer(
+          userId: m.userId,
+          day: day,
+          questionId: q.id,
+          text: m == alex ? 'Honestly? Our Sunday pancakes.' : 'The trip to the lake last spring 🥰',
+          createdAt: now.subtract(Duration(days: i, hours: m == alex ? 3 : 2)),
+        ));
+      }
+    }
     _missions.addAll([
       Mission(id: 'm1', title: 'Fix the wobbly shelf', dueOn: today.add(const Duration(days: 2)), createdAt: now, createdBy: alex.userId, assignee: sam.userId),
       Mission(id: 'm2', title: 'Book the car service', dueOn: today.subtract(const Duration(days: 1)), createdAt: now, createdBy: sam.userId),
@@ -207,6 +231,43 @@ class DemoBackend implements Backend {
       throw BackendException('Cannot delete this log');
     }
     _logs[i] = _logs[i].undone(DateTime.now().toUtc(), _user!);
+  }
+
+  @override
+  Future<List<AnswerMeta>> loadAnswerLog(String householdId) async => [
+        for (final a in _answers) AnswerMeta(userId: a.userId, day: a.day, createdAt: a.createdAt),
+      ];
+
+  @override
+  Future<List<Answer>> loadAnswers(String householdId) async => [
+        for (final a in _answers)
+          if (a.userId == _user || _answers.any((x) => x.userId == _user && x.day == a.day)) a,
+      ];
+
+  @override
+  Future<void> submitAnswer({
+    required String householdId,
+    required DateTime day,
+    required String questionId,
+    required String text,
+  }) async {
+    if (_answers.any((a) => a.userId == _user && a.day == day)) {
+      throw BackendException('You already answered today');
+    }
+    _answers.add(Answer(
+      userId: _user!,
+      day: day,
+      questionId: questionId,
+      text: text,
+      createdAt: DateTime.now().toUtc(),
+    ));
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> unlockPacks(String householdId, Set<QuestionPack> packs) async {
+    _household = _household.copyWith(unlockedPacks: packs);
+    _changes.add(null);
   }
 
   @override

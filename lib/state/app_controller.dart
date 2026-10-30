@@ -8,6 +8,7 @@ import '../domain/badges.dart';
 import '../domain/catalog.dart';
 import '../domain/engine.dart';
 import '../domain/missions.dart';
+import '../domain/questions.dart';
 import '../domain/models.dart';
 
 enum AppStatus { loading, signedOut, needsHousehold, ready }
@@ -29,6 +30,10 @@ class AppController extends ChangeNotifier {
   Household? household;
   List<TaskLog> logs = const [];
   List<Mission> missions = const [];
+
+  /// Bond: who answered when (all), and the answers I'm allowed to read.
+  List<AnswerMeta> answerLog = const [];
+  List<Answer> answers = const [];
   ScoringEngine? _engine;
   String? loadError;
 
@@ -73,6 +78,8 @@ class AppController extends ChangeNotifier {
       }
       final (l, m) = (await backend.loadLogs(h.id), await backend.loadMissions(h.id));
       missions = m;
+      answerLog = await backend.loadAnswerLog(h.id);
+      answers = await backend.loadAnswers(h.id);
       _set(AppStatus.ready, h, l);
       _watch(h.id);
       loadError = null;
@@ -86,7 +93,9 @@ class AppController extends ChangeNotifier {
     status = s;
     household = h;
     logs = l;
-    _engine = h == null ? null : ScoringEngine(h);
+    _engine = h == null
+        ? null
+        : ScoringEngine(h, bondReveals: revealTimes(answerLog, [for (final m in h.members) m.userId]));
     if (h == null) {
       _changesSub?.cancel();
       _changesSub = null;
@@ -119,6 +128,63 @@ class AppController extends ChangeNotifier {
       ));
 
   DateTime get today => engine.calendar.localDate(now);
+
+  // ------------------------------------------------------------ bond
+
+  List<String> get _memberIds => [for (final m in household!.members) m.userId];
+
+  /// Days both partners answered; +1 boss damage per hit for each.
+  int get bondLevel => engine.bondReveals.length;
+
+  /// The question [userId] gets today.
+  Question questionToday(String userId) => questionFor(
+        coupleId: household!.id,
+        memberIds: _memberIds,
+        userId: userId,
+        day: today,
+        unlocked: household!.unlockedPacks,
+      );
+
+  bool _answered(String? userId, DateTime day) =>
+      answerLog.any((a) => a.userId == userId && a.day == day);
+
+  bool get iAnsweredToday => _answered(me, today);
+  bool get partnerAnsweredToday => partner != null && _answered(partner!.userId, today);
+
+  /// Partner answered and is waiting for me: drives the nav badge.
+  bool get bondNeedsMe => partnerAnsweredToday && !iAnsweredToday;
+
+  Answer? answerOn(String? userId, DateTime day) {
+    for (final a in answers) {
+      if (a.userId == userId && a.day == day) return a;
+    }
+    return null;
+  }
+
+  /// Revealed days (both answers visible to me), newest first.
+  List<(DateTime day, DateTime revealedAt, Answer mine, Answer theirs)> get revealedDays {
+    final p = partner?.userId;
+    final out = <(DateTime, DateTime, Answer, Answer)>[];
+    for (final mine in answers.where((a) => a.userId == me)) {
+      final theirs = answerOn(p, mine.day);
+      if (theirs == null) continue;
+      final at = mine.createdAt.isAfter(theirs.createdAt) ? mine.createdAt : theirs.createdAt;
+      out.add((mine.day, at, mine, theirs));
+    }
+    return out..sort((x, y) => y.$2.compareTo(x.$2));
+  }
+
+  Future<void> submitAnswer(String text) async {
+    final q = answerOn(me, today)?.question ?? questionToday(me);
+    await backend.submitAnswer(householdId: household!.id, day: today, questionId: q.id, text: text);
+    await refresh();
+  }
+
+  /// Fake checkout: unlocks immediately.
+  Future<void> unlockPack(QuestionPack pack) async {
+    await backend.unlockPacks(household!.id, {...household!.unlockedPacks, pack});
+    await refresh();
+  }
 
   List<TaskDef> get visibleTasks =>
       visibleCatalog(hasKids: household!.hasKids, hasPets: household!.hasPets);

@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../data/demo_backend.dart';
 import '../state/app_controller.dart';
+import 'bond_screen.dart';
 import 'common.dart';
 import 'history_screen.dart';
 import 'home_screen.dart';
@@ -21,7 +24,7 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   int _tab = 0;
 
-  static const _titles = ['Our home', 'Achievements'];
+  static const _titles = ['Our home', 'Bond', 'Achievements'];
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +68,7 @@ class _ShellState extends State<Shell> {
       ),
       body: IndexedStack(
         index: _tab,
-        children: const [HomeScreen(), WeeksScreen()],
+        children: const [HomeScreen(), BondScreen(), WeeksScreen()],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: _tab == 0
@@ -98,9 +101,10 @@ class _ShellState extends State<Shell> {
         child: NavigationBar(
           selectedIndex: _tab,
           onDestinationSelected: (i) => setState(() => _tab = i),
-          destinations: const [
-            NavigationDestination(icon: Text('🏠', style: TextStyle(fontSize: 24)), label: 'Home'),
-            NavigationDestination(icon: Text('🏆', style: TextStyle(fontSize: 24)), label: 'Achievements'),
+          destinations: [
+            const NavigationDestination(icon: Text('🏠', style: TextStyle(fontSize: 24)), label: 'Home'),
+            NavigationDestination(icon: _BondIcon(alert: app.bondNeedsMe), label: 'Bond'),
+            const NavigationDestination(icon: Text('🏆', style: TextStyle(fontSize: 24)), label: 'Achievements'),
           ],
         ),
       ),
@@ -185,4 +189,94 @@ class _MenuPage extends StatelessWidget {
       body: child,
     );
   }
+}
+
+/// Bond tab icon. When the partner has answered and is waiting, the heart
+/// bounces and a pulsing dot appears to draw attention.
+class _BondIcon extends StatefulWidget {
+  const _BondIcon({required this.alert});
+
+  final bool alert;
+
+  @override
+  State<_BondIcon> createState() => _BondIconState();
+}
+
+class _BondIconState extends State<_BondIcon> with SingleTickerProviderStateMixin {
+  late final _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_BondIcon old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.alert && !_c.isAnimating) {
+      _c.repeat();
+    } else if (!widget.alert) {
+      _c
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: widget.alert ? 'Your partner answered. Your turn!' : null,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            final t = _c.value;
+            // Two quick beats, then rest: like a heartbeat.
+            final beat = t < 0.15
+                ? math.sin(t / 0.15 * math.pi)
+                : t < 0.35
+                    ? math.sin((t - 0.2) / 0.15 * math.pi).clamp(0.0, 1.0)
+                    : 0.0;
+            return Stack(clipBehavior: Clip.none, children: [
+              Transform.scale(
+                scale: 1 + 0.25 * beat,
+                child: const Text('💞', style: TextStyle(fontSize: 24)),
+              ),
+              if (widget.alert)
+                Positioned(
+                  right: -6,
+                  top: -4,
+                  child: Stack(alignment: Alignment.center, children: [
+                    Container(
+                      width: 14 + 14 * t,
+                      height: 14 + 14 * t,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Vivid.berry.withValues(alpha: 0.45 * (1 - t)),
+                      ),
+                    ),
+                    Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: Vivid.berry,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
+                  ]),
+                ),
+            ]);
+          },
+        ),
+      );
 }

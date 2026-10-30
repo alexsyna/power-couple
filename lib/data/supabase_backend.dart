@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/missions.dart';
 import '../domain/models.dart';
+import '../domain/questions.dart';
 import 'backend.dart';
 
 class SupabaseBackend implements Backend {
@@ -135,6 +136,10 @@ class SupabaseBackend implements Backend {
       members: [
         for (final uid in ids) member(uid),
       ],
+      unlockedPacks: {
+        QuestionPack.light,
+        for (final p in (couple['unlocked_packs'] as List?) ?? const []) ?QuestionPack.parse(p as String),
+      },
     );
   }
 
@@ -237,6 +242,54 @@ class SupabaseBackend implements Backend {
   @override
   Future<void> undoLog(String logId) =>
       _guard(() => _client.rpc('undo_log', params: {'log_id': logId}));
+
+  @override
+  Future<List<AnswerMeta>> loadAnswerLog(String householdId) => _guard(() async {
+        final rows = await _client.rpc('answer_log') as List;
+        return [
+          for (final r in rows)
+            AnswerMeta(
+              userId: r['user_id'] as String,
+              day: parseDateKey(r['day'] as String),
+              createdAt: DateTime.parse(r['created_at'] as String),
+            ),
+        ];
+      });
+
+  @override
+  Future<List<Answer>> loadAnswers(String householdId) => _guard(() async {
+        final rows = await _client.from('question_answers').select().eq('couple_id', householdId);
+        return [
+          for (final r in rows)
+            Answer(
+              userId: r['user_id'] as String,
+              day: parseDateKey(r['day'] as String),
+              questionId: r['question_id'] as String,
+              text: r['answer'] as String,
+              createdAt: DateTime.parse(r['created_at'] as String),
+            ),
+        ];
+      });
+
+  @override
+  Future<void> submitAnswer({
+    required String householdId,
+    required DateTime day,
+    required String questionId,
+    required String text,
+  }) =>
+      _guard(() => _client.from('question_answers').insert({
+            'couple_id': householdId,
+            'day': dateKey(day),
+            'question_id': questionId,
+            'answer': text,
+          }));
+
+  @override
+  Future<void> unlockPacks(String householdId, Set<QuestionPack> packs) =>
+      _guard(() => _client.from('couples').update({
+            'unlocked_packs': [for (final p in packs) p.name],
+          }).eq('id', householdId));
 
   @override
   Future<List<Mission>> loadMissions(String householdId) => _guard(() async {
@@ -382,6 +435,7 @@ class SupabaseBackend implements Backend {
   }
 
   static String _friendly(String message) {
+    if (message.contains('question_answers_user_id_day_key')) return 'You already answered today';
     for (final known in [
       'invite code not found',
       'household is full',
