@@ -6,21 +6,6 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>org.powercouple.powercouple</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>org.powercouple.powercouple</string>
-			</array>
-		</dict>
-	</array>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Choose a profile photo your partner will see.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Take a profile photo your partner will see.</string>
 	<key>CFBundleDisplayName</key>
 	<string>Power Couple</string>
 	<key>CFBundleExecutable</key>
@@ -37,10 +22,27 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.powercouple.powercouple</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>org.powercouple.powercouple</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a profile photo your partner will see.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a profile photo your partner will see.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
