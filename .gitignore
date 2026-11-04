@@ -49,3 +49,11 @@ app.*.map.json
 
 # Local Claude preview config
 .claude/
+
+# Firebase values are copied into config/firebase.json
+ios/Runner/GoogleService-Info.plist
+
+# Secrets: never commit
+*.p8
+*firebase-adminsdk*.json
+*service-account*.json
