@@ -7,6 +7,7 @@ import 'data/demo_backend.dart';
 import 'data/supabase_backend.dart';
 import 'domain/calendar.dart';
 import 'state/app_controller.dart';
+import 'state/push.dart';
 import 'ui/auth_screen.dart';
 import 'ui/common.dart';
 import 'ui/intro_screen.dart';
@@ -27,6 +28,7 @@ Future<void> main() async {
     await Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseKey);
     backend = SupabaseBackend(Supabase.instance.client);
   }
+  await initPush();
   final prefs = await SharedPreferences.getInstance();
   runApp(PowerCoupleApp(controller: AppController(backend, prefs: prefs), prefs: prefs));
 }

@@ -11,6 +11,7 @@ import '../domain/engine.dart';
 import '../domain/missions.dart';
 import '../domain/questions.dart';
 import '../domain/models.dart';
+import 'push.dart';
 
 enum AppStatus { loading, signedOut, needsHousehold, ready }
 
@@ -29,6 +30,9 @@ class AppController extends ChangeNotifier {
 
   /// Device storage for which Bond reveals have been shown here.
   final SharedPreferences? prefs;
+
+  /// Bond push notifications on this phone.
+  late final push = PushNotifications(backend, prefs);
 
   AppStatus status = AppStatus.loading;
   Household? household;
@@ -85,6 +89,7 @@ class AppController extends ChangeNotifier {
       answerLog = await backend.loadAnswerLog(h.id);
       answers = await backend.loadAnswers(h.id);
       _set(AppStatus.ready, h, l);
+      push.attach(me).ignore();
       _watch(h.id);
       loadError = null;
     } on BackendException catch (e) {
@@ -314,7 +319,10 @@ class AppController extends ChangeNotifier {
   Future<bool> signUp(String email, String password, String name) =>
       backend.signUp(email: email, password: password, displayName: name);
 
-  Future<void> signOut() => backend.signOut();
+  Future<void> signOut() async {
+    await push.detach();
+    await backend.signOut();
+  }
 
   Future<void> createHousehold(String timezone, bool hasKids, bool hasPets) async {
     await backend.createHousehold(timezone: timezone, hasKids: hasKids, hasPets: hasPets);

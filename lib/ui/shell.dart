@@ -24,6 +24,30 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _tab = 0;
+  ValueNotifier<int>? _openBond;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final openBond = AppScope.of(context).push.openBond;
+    if (openBond != _openBond) {
+      _openBond?.removeListener(_showBond);
+      _openBond = openBond..addListener(_showBond);
+    }
+  }
+
+  @override
+  void dispose() {
+    _openBond?.removeListener(_showBond);
+    super.dispose();
+  }
+
+  /// A Bond notification was tapped.
+  void _showBond() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    setState(() => _tab = 1);
+  }
 
   static const _titles = ['Our home', 'Bond', 'Achievements'];
 

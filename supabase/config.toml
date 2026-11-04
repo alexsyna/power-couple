@@ -1,0 +1,6 @@
+project_id = "kywifzncslgmdjlyckhu"
+
+[functions.bond-push]
+# Called by the database trigger without a user token; the function only
+# accepts an answer id and handles each answer once.
+verify_jwt = false

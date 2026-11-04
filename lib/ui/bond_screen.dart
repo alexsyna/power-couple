@@ -100,9 +100,11 @@ class _TodayCardState extends State<_TodayCard> {
     if (text.isEmpty) return;
     setState(() => _busy = true);
     try {
-      await AppScope.of(context).submitAnswer(text);
+      final app = AppScope.of(context);
+      await app.submitAnswer(text);
       _text.clear();
       if (mounted) FocusScope.of(context).unfocus();
+      if (mounted) await offerNotifications(context);
     } on BackendException catch (e) {
       if (mounted) showMessage(context, e.message, color: Vivid.berry);
     } finally {
@@ -520,5 +522,26 @@ class _QuestionDaysState extends State<_QuestionDays> {
         ),
       ),
     ]);
+  }
+}
+
+/// After a first answer on this phone, offers Bond notifications once.
+Future<void> offerNotifications(BuildContext context) async {
+  final app = AppScope.of(context);
+  final push = app.push;
+  if (!push.supported || push.enabled || push.asked) return;
+  push.markAsked();
+  final partner = app.partner?.displayName ?? 'your partner';
+  final ok = await confirm(
+    context,
+    emoji: '🔔',
+    title: 'Never miss a reveal',
+    body: 'Get a notification when $partner answers, and when both answers are in.',
+    action: 'Turn on notifications',
+  );
+  if (!ok || !context.mounted) return;
+  if (!await push.enable() && context.mounted) {
+    showMessage(context, 'Notifications are blocked. Turn them on in iPhone Settings → Power Couple.',
+        color: Vivid.berry);
   }
 }

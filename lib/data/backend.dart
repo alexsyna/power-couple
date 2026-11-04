@@ -84,6 +84,10 @@ abstract class Backend {
   /// Fake purchase for now: unlocks the packs for the whole household.
   Future<void> unlockPacks(String householdId, Set<QuestionPack> packs);
 
+  /// Push notifications: this phone's token for the signed-in user.
+  Future<void> registerDevice(String token);
+  Future<void> unregisterDevice(String token);
+
   Future<List<Mission>> loadMissions(String householdId);
 
   Future<Mission> createMission({

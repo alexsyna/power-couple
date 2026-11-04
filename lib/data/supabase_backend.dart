@@ -292,6 +292,14 @@ class SupabaseBackend implements Backend {
           }).eq('id', householdId));
 
   @override
+  Future<void> registerDevice(String token) =>
+      _guard(() => _client.rpc('register_device', params: {'p_token': token, 'p_platform': 'ios'}));
+
+  @override
+  Future<void> unregisterDevice(String token) =>
+      _guard(() => _client.rpc('unregister_device', params: {'p_token': token}));
+
+  @override
   Future<List<Mission>> loadMissions(String householdId) => _guard(() async {
         final rows = await _client
             .from('missions')

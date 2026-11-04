@@ -273,6 +273,12 @@ class DemoBackend implements Backend {
   }
 
   @override
+  Future<void> registerDevice(String token) async {}
+
+  @override
+  Future<void> unregisterDevice(String token) async {}
+
+  @override
   Future<List<Mission>> loadMissions(String householdId) async =>
       _missions.where((m) => !m.isDeleted).toList();
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -99,6 +100,8 @@ class SettingsScreen extends StatelessWidget {
           ]),
         ),
         const SizedBox(height: 14),
+        const _NotificationsCard(),
+        const SizedBox(height: 14),
         const ShopCard(),
         const SizedBox(height: 14),
         if (backend is DemoBackend) ...[
@@ -151,6 +154,67 @@ class SettingsScreen extends StatelessWidget {
           ]),
         ),
       ],
+    );
+  }
+}
+
+/// Turn Bond push notifications on or off for this phone.
+class _NotificationsCard extends StatefulWidget {
+  const _NotificationsCard();
+
+  @override
+  State<_NotificationsCard> createState() => _NotificationsCardState();
+}
+
+class _NotificationsCardState extends State<_NotificationsCard> {
+  bool _busy = false;
+
+  Future<void> _toggle(bool on) async {
+    final push = AppScope.of(context).push;
+    setState(() => _busy = true);
+    try {
+      if (on) {
+        final ok = await push.enable();
+        if (!ok && mounted) {
+          showMessage(context, 'Notifications are blocked. Turn them on in iPhone Settings → Power Couple.',
+              color: Vivid.berry);
+        }
+      } else {
+        await push.disable();
+      }
+    } on BackendException catch (e) {
+      if (mounted) showMessage(context, e.message, color: Vivid.berry);
+    } catch (_) {
+      if (mounted) showMessage(context, 'Couldn\'t turn on notifications. Try again.', color: Vivid.berry);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final push = app.push;
+    final partner = app.partner?.displayName ?? 'your partner';
+    return ListenableBuilder(
+      listenable: push,
+      builder: (context, _) => SectionCard(
+        title: '🔔 Notifications',
+        child: SettingRow(
+          emoji: '💞',
+          title: 'Bond questions',
+          subtitle: push.supported
+              ? 'When $partner answers, and when both answers are in'
+              : kIsWeb
+                  ? 'Available in the iPhone app'
+                  : 'Not available in this version',
+          color: Vivid.berry,
+          trailing: Switch(
+            value: push.enabled,
+            onChanged: push.supported && !_busy ? _toggle : null,
+          ),
+        ),
+      ),
     );
   }
 }

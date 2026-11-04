@@ -1,9 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/backend.dart';
 import '../domain/questions.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+
+/// In the iPhone app, paid packs are free during the beta: Apple only allows
+/// selling digital content through its own in-app purchases, so the demo
+/// checkout stays on the web only.
+final bool freeDuringBeta = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
 /// Question packs for sale. Checkout is simulated for now: tapping Buy
 /// unlocks the pack for the whole household straight away.
@@ -15,8 +21,10 @@ class ShopCard extends StatelessWidget {
       context,
       emoji: pack.emoji,
       title: 'Unlock ${pack.label} questions?',
-      body: '20 new questions for both of you, ${pack.price}.\n\nThis is a demo checkout: no payment is taken.',
-      action: 'Buy for ${pack.price}',
+      body: freeDuringBeta
+          ? '20 new questions for both of you, free during the beta.'
+          : '20 new questions for both of you, ${pack.price}.\n\nThis is a demo checkout: no payment is taken.',
+      action: freeDuringBeta ? 'Unlock for free' : 'Buy for ${pack.price}',
     );
     if (!ok || !context.mounted) return;
     try {
@@ -45,6 +53,9 @@ class ShopCard extends StatelessWidget {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${p.label} questions', style: theme.textTheme.titleSmall),
                   Text(p.blurb, style: theme.textTheme.bodySmall),
+                  if (freeDuringBeta && !p.isFree && !unlocked.contains(p))
+                    Text('Free during beta',
+                        style: theme.textTheme.bodySmall?.copyWith(color: Vivid.grass, fontWeight: FontWeight.w800)),
                 ]),
               ),
               const SizedBox(width: 8),
@@ -54,7 +65,7 @@ class ShopCard extends StatelessWidget {
                 SizedBox(
                   width: 92,
                   child: ChunkyButton(
-                    label: p.price!,
+                    label: freeDuringBeta ? 'Unlock' : p.price!,
                     compact: true,
                     color: Vivid.sun,
                     onPressed: () => _buy(context, p),
