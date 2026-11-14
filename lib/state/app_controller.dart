@@ -39,6 +39,9 @@ class AppController extends ChangeNotifier {
   List<TaskLog> logs = const [];
   List<Mission> missions = const [];
 
+  /// The household's own tasks, deleted ones included.
+  List<TaskDef> customTasks = const [];
+
   /// Bond: who answered when (all), and the answers I'm allowed to read.
   List<AnswerMeta> answerLog = const [];
   List<Answer> answers = const [];
@@ -84,6 +87,9 @@ class AppController extends ChangeNotifier {
         _set(AppStatus.needsHousehold, null, const []);
         return;
       }
+      // Custom tasks first: logs look their task up by id.
+      customTasks = await backend.loadCustomTasks(h.id);
+      setCustomTasks(customTasks);
       final (l, m) = (await backend.loadLogs(h.id), await backend.loadMissions(h.id));
       missions = m;
       answerLog = await backend.loadAnswerLog(h.id);
@@ -234,7 +240,26 @@ class AppController extends ChangeNotifier {
   }
 
   List<TaskDef> get visibleTasks =>
-      visibleCatalog(hasKids: household!.hasKids, hasPets: household!.hasPets);
+      visibleCatalog(hasKids: household!.hasKids, hasPets: household!.hasPets, custom: customTasks);
+
+  /// Adds a household task. Names must be new, ignoring case.
+  Future<TaskDef> addCustomTask(String name, TaskCategory category, int points) async {
+    final clean = name.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (visibleTasks.any((t) => t.name.toLowerCase() == clean.toLowerCase())) {
+      throw BackendException('"$clean" is already on the list.');
+    }
+    final t = await backend.createCustomTask(
+        householdId: household!.id, name: clean, category: category, points: points);
+    customTasks = [...customTasks, t];
+    setCustomTasks(customTasks);
+    notifyListeners();
+    return t;
+  }
+
+  Future<void> deleteCustomTask(TaskDef task) async {
+    await backend.deleteCustomTask(task.id);
+    await refresh();
+  }
 
   /// My most recently logged distinct catalog tasks, for one-tap logging.
   List<TaskDef> get recentTasks {

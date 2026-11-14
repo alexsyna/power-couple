@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
 import '../domain/questions.dart';
@@ -101,6 +102,19 @@ abstract class Backend {
   Future<void> updateMission(Mission mission);
 
   Future<void> deleteMission(String missionId);
+
+  /// The household's own tasks, deleted ones included (old logs need them).
+  Future<List<TaskDef>> loadCustomTasks(String householdId);
+
+  Future<TaskDef> createCustomTask({
+    required String householdId,
+    required String name,
+    required TaskCategory category,
+    required int points,
+  });
+
+  /// Hides the task from the list; logs already made keep their points.
+  Future<void> deleteCustomTask(String taskId);
 
   /// Emits when the household's members, settings or logs change elsewhere
   /// (e.g. on the partner's phone).

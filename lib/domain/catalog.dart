@@ -31,6 +31,8 @@ class TaskDef {
     required this.category,
     required this.points,
     required this.dailyCap,
+    this.isCustom = false,
+    this.isDeleted = false,
   });
 
   final String id;
@@ -40,6 +42,13 @@ class TaskDef {
 
   /// Max completions per household per local day.
   final int dailyCap;
+
+  /// Added by the household rather than built in.
+  final bool isCustom;
+
+  /// A custom task the household removed. Old logs keep their points, but
+  /// it can't be logged again.
+  final bool isDeleted;
 
   bool get isOther => id == otherTaskId;
 
@@ -66,6 +75,7 @@ const catalog = <TaskDef>[
   TaskDef(id: 'clean_kitchen', name: 'Clean the kitchen', category: TaskCategory.kitchen, points: 35, dailyCap: 1),
   // Laundry
   TaskDef(id: 'laundry_load', name: 'Do a laundry load', category: TaskCategory.laundry, points: 25, dailyCap: 3),
+  TaskDef(id: 'hang_laundry', name: 'Hang out the laundry', category: TaskCategory.laundry, points: 15, dailyCap: 3),
   TaskDef(id: 'fold_laundry', name: 'Fold and put away laundry', category: TaskCategory.laundry, points: 25, dailyCap: 3),
   TaskDef(id: 'bed_sheets', name: 'Change bed sheets', category: TaskCategory.laundry, points: 25, dailyCap: 1),
   // General cleaning
@@ -108,12 +118,54 @@ const catalog = <TaskDef>[
 
 final Map<String, TaskDef> _byId = {for (final t in catalog) t.id: t};
 
-TaskDef taskById(String id) =>
-    _byId[id] ?? (throw ArgumentError('Unknown task id: $id'));
+// Custom tasks: points range and repetition limit.
+const customMinPoints = 10;
+const customMaxPoints = 50;
+const customPointsStep = 5;
+const customDailyCap = 3;
+const customNameMaxLength = 40;
 
-/// Catalog filtered to the household's settings.
-List<TaskDef> visibleCatalog({required bool hasKids, required bool hasPets}) =>
-    catalog
+/// Custom task ids are this prefix plus the database id.
+const customTaskPrefix = 'custom_';
+
+/// The household's own tasks, including deleted ones so old logs still
+/// resolve. Kept here so any log can look up its task by id.
+final Map<String, TaskDef> _customById = {};
+
+void setCustomTasks(Iterable<TaskDef> tasks) {
+  _customById
+    ..clear()
+    ..addAll({for (final t in tasks) t.id: t});
+}
+
+/// Categories a custom task can go in ("Other" is for one-off names).
+List<TaskCategory> get customCategories =>
+    [for (final c in TaskCategory.values) if (c != TaskCategory.other) c];
+
+TaskDef taskById(String id) {
+  final known = _byId[id] ?? _customById[id];
+  if (known != null) return known;
+  // A partner's new task that hasn't loaded here yet.
+  if (id.startsWith(customTaskPrefix)) {
+    return TaskDef(
+      id: id,
+      name: 'Custom task',
+      category: TaskCategory.other,
+      points: customMinPoints,
+      dailyCap: customDailyCap,
+      isCustom: true,
+    );
+  }
+  throw ArgumentError('Unknown task id: $id');
+}
+
+/// Catalog plus the household's custom tasks, filtered to its settings.
+List<TaskDef> visibleCatalog({
+  required bool hasKids,
+  required bool hasPets,
+  Iterable<TaskDef> custom = const [],
+}) =>
+    [...catalog, ...custom.where((t) => !t.isDeleted)]
         .where((t) =>
             (hasKids || t.category != TaskCategory.childcare) &&
             (hasPets || t.category != TaskCategory.pets))

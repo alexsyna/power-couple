@@ -133,11 +133,46 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
     if (outcome != null && mounted) Navigator.pop(context, outcome);
   }
 
+  Future<void> _addTask({TaskCategory? category, String name = ''}) async {
+    final task = await showModalBottomSheet<TaskDef>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CustomTaskSheet(category: category, initialName: name),
+    );
+    if (task == null || !mounted) return;
+    setState(() {
+      _search.clear();
+      _query = '';
+    });
+    showMessage(context, '${task.category.emoji} ${task.name} added to ${task.category.label}', color: Vivid.grass);
+  }
+
+  Future<void> _deleteTask(TaskDef task) async {
+    final app = AppScope.of(context);
+    final ok = await confirm(
+      context,
+      emoji: '🗑️',
+      title: 'Delete "${task.name}"?',
+      body: 'It disappears from the list for both of you. Points already earned stay.',
+      action: 'Delete',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    try {
+      await app.deleteCustomTask(task);
+    } on BackendException catch (e) {
+      if (mounted) showMessage(context, e.message, color: Vivid.berry);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final theme = Theme.of(context);
     final s = Surface.of(context);
+    // Custom tasks can be added and deleted from the full list only.
+    final editable = widget.only == null;
     final tasks = widget.only ?? app.visibleTasks;
     final q = _query.trim().toLowerCase();
     final matches = q.isEmpty
@@ -193,8 +228,17 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
                 child: Row(children: [
                   EmojiBadge(cat.emoji, color: categoryColor(cat), size: 32),
                   const SizedBox(width: 10),
-                  Text(cat.label.toUpperCase(),
-                      style: theme.textTheme.labelLarge?.copyWith(color: s.muted, letterSpacing: 1)),
+                  Expanded(
+                    child: Text(cat.label.toUpperCase(),
+                        style: theme.textTheme.labelLarge?.copyWith(color: s.muted, letterSpacing: 1)),
+                  ),
+                  if (editable && cat != TaskCategory.other)
+                    IconButton(
+                      tooltip: 'Add a task to ${cat.label}',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(Icons.add_circle_outline_rounded, color: categoryColor(cat)),
+                      onPressed: () => _addTask(category: cat),
+                    ),
                 ]),
               ),
               for (final t in matches.where((t) => t.category == cat))
@@ -212,9 +256,26 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Text(t.name, style: theme.textTheme.titleSmall),
                             if (t.isOther) Text('Name it yourself · no boss damage', style: theme.textTheme.bodySmall),
+                            if (t.isCustom) Text('Your own task', style: theme.textTheme.bodySmall),
                           ]),
                         ),
                         Pill('+${t.points}', color: Vivid.grass),
+                        if (t.isCustom && editable)
+                          PopupMenuButton<void>(
+                            tooltip: 'More',
+                            padding: EdgeInsets.zero,
+                            icon: Icon(Icons.more_vert_rounded, color: s.muted),
+                            itemBuilder: (_) => [
+                              PopupMenuItem(
+                                onTap: () => _deleteTask(t),
+                                child: const Row(children: [
+                                  Icon(Icons.delete_outline_rounded, color: Vivid.berry),
+                                  SizedBox(width: 10),
+                                  Text('Delete task'),
+                                ]),
+                              ),
+                            ],
+                          ),
                       ]),
                     ),
                   ),
@@ -228,13 +289,144 @@ class _LogTaskScreenState extends State<LogTaskScreen> {
                 Text('No matching task', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 12),
                 ChunkyButton(
+                  label: 'Add "${_query.trim()}" as a task',
+                  icon: const Icon(Icons.add_rounded),
+                  onPressed: () => _addTask(name: _query.trim()),
+                ),
+                const SizedBox(height: 10),
+                ChunkyButton(
                   label: 'Log "${_query.trim()}" as Other',
                   color: Vivid.grape,
+                  outlined: true,
                   onPressed: () => _pick(taskById(otherTaskId)),
                 ),
               ]),
             ),
+          if (editable && q.isEmpty) ...[
+            const SizedBox(height: 18),
+            ChunkyButton(
+              label: 'Add your own task',
+              icon: const Icon(Icons.add_rounded),
+              color: Vivid.sky,
+              outlined: true,
+              onPressed: () => _addTask(),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Adds a household task: a name, a category and 10 to 50 points.
+class _CustomTaskSheet extends StatefulWidget {
+  const _CustomTaskSheet({this.category, this.initialName = ''});
+
+  final TaskCategory? category;
+  final String initialName;
+
+  @override
+  State<_CustomTaskSheet> createState() => _CustomTaskSheetState();
+}
+
+class _CustomTaskSheetState extends State<_CustomTaskSheet> {
+  late final _name = TextEditingController(text: widget.initialName);
+  late TaskCategory? _category = widget.category;
+  int _points = 20;
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Give your task a name.');
+      return;
+    }
+    if (_category == null) {
+      setState(() => _error = 'Pick a category.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final task = await AppScope.of(context).addCustomTask(name, _category!, _points);
+      if (mounted) Navigator.pop(context, task);
+    } on BackendException catch (e) {
+      setState(() {
+        _busy = false;
+        _error = e.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final theme = Theme.of(context);
+    final categories = [
+      for (final c in customCategories)
+        if ((app.household!.hasKids || c != TaskCategory.childcare) && (app.household!.hasPets || c != TaskCategory.pets)) c,
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.viewInsetsOf(context).bottom),
+      child: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+          Text('New task', style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+          Text('It joins the list for both of you and hits the boss like any other task.',
+              style: theme.textTheme.bodyMedium, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _name,
+            autofocus: widget.initialName.isEmpty,
+            maxLength: customNameMaxLength,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Task name', hintText: 'e.g. Iron the shirts'),
+          ),
+          const SizedBox(height: 4),
+          DropdownButtonFormField<TaskCategory>(
+            initialValue: _category,
+            decoration: const InputDecoration(labelText: 'Category'),
+            items: [
+              for (final c in categories) DropdownMenuItem(value: c, child: Text('${c.emoji}  ${c.label}')),
+            ],
+            onChanged: (c) => setState(() => _category = c),
+          ),
+          const SizedBox(height: 18),
+          Row(children: [
+            Expanded(child: Text('POINTS', style: theme.textTheme.labelLarge?.copyWith(letterSpacing: 1))),
+            Pill('+$_points', color: Vivid.grass, filled: true),
+          ]),
+          Slider(
+            value: _points.toDouble(),
+            min: customMinPoints.toDouble(),
+            max: customMaxPoints.toDouble(),
+            divisions: (customMaxPoints - customMinPoints) ~/ customPointsStep,
+            label: '+$_points',
+            onChanged: (v) => setState(() => _points = v.round()),
+          ),
+          Text('Quick jobs like taking out the rubbish are 10. Big ones like cleaning the bathroom are 50.',
+              style: theme.textTheme.bodySmall),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!, style: theme.textTheme.titleSmall?.copyWith(color: Vivid.berry)),
+          ],
+          const SizedBox(height: 16),
+          ChunkyButton(
+            label: 'Add task',
+            busy: _busy,
+            icon: const Icon(Icons.check_rounded),
+            onPressed: _save,
+          ),
+        ]),
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
 import '../domain/questions.dart';
@@ -347,6 +348,50 @@ class SupabaseBackend implements Backend {
         'deleted_by': currentUserId,
       }).eq('id', missionId));
 
+  @override
+  Future<List<TaskDef>> loadCustomTasks(String householdId) => _guard(() async {
+        final rows = await _client.from('household_tasks').select().eq('couple_id', householdId).order('created_at');
+        return [for (final r in rows) _customTaskFromRow(r)];
+      });
+
+  @override
+  Future<TaskDef> createCustomTask({
+    required String householdId,
+    required String name,
+    required TaskCategory category,
+    required int points,
+  }) =>
+      _guard(() async {
+        final row = await _client
+            .from('household_tasks')
+            .insert({
+              'couple_id': householdId,
+              'name': name,
+              'category': category.name,
+              'points': points,
+              'created_by': currentUserId,
+            })
+            .select()
+            .single();
+        return _customTaskFromRow(row);
+      });
+
+  @override
+  Future<void> deleteCustomTask(String taskId) => _guard(() => _client.from('household_tasks').update({
+        'deleted_at': DateTime.now().toUtc().toIso8601String(),
+        'deleted_by': currentUserId,
+      }).eq('id', taskId.substring(customTaskPrefix.length)));
+
+  static TaskDef _customTaskFromRow(Map<String, dynamic> r) => TaskDef(
+        id: '$customTaskPrefix${r['id']}',
+        name: r['name'] as String,
+        category: TaskCategory.values.firstWhere((c) => c.name == r['category'], orElse: () => TaskCategory.other),
+        points: r['points'] as int,
+        dailyCap: customDailyCap,
+        isCustom: true,
+        isDeleted: r['deleted_at'] != null,
+      );
+
   static Mission _missionFromRow(Map<String, dynamic> r) {
     DateTime? at(String k) => r[k] == null ? null : DateTime.parse(r[k] as String);
     return Mission(
@@ -393,6 +438,12 @@ class SupabaseBackend implements Backend {
             event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'missions',
+            filter: filter('couple_id'),
+            callback: ping)
+        .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'household_tasks',
             filter: filter('couple_id'),
             callback: ping)
         .onPostgresChanges(

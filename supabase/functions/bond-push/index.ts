@@ -5,7 +5,7 @@
 // handled once (question_answers.notified_at), so the endpoint is safe to
 // leave without a secret.
 //
-// Secret required (Supabase → Edge Functions → Secrets):
+// Secret required (Supabase > Edge Functions > Secrets):
 //   FCM_SERVICE_ACCOUNT: the Firebase service account JSON, pasted whole.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -50,7 +50,9 @@ Deno.serve(async (req) => {
 
   let body: string;
   if (partnerAnswer) {
-    body = "💞 Both answers are in! Tap to reveal.";
+    // Emoji as escapes: the file stays plain ASCII, so pasting it into the
+    // dashboard editor can't garble them. 1F49E is the two hearts, 1F48C the love letter.
+    body = "\u{1F49E} Both answers are in! Tap to reveal.";
   } else {
     const { data: profile } = await db
       .from("profiles")
@@ -58,7 +60,7 @@ Deno.serve(async (req) => {
       .eq("id", claimed.user_id)
       .maybeSingle();
     const name = profile?.display_name ?? "Your partner";
-    body = `💌 ${name} answered today's question. Your turn!`;
+    body = `\u{1F48C} ${name} answered today's question. Your turn!`;
   }
 
   const { data: tokens } = await db

@@ -26,6 +26,7 @@ class DemoBackend implements Backend {
   late Household _household;
   final List<TaskLog> _logs = [];
   final List<Mission> _missions = [];
+  final List<TaskDef> _customTasks = [];
   final List<Answer> _answers = [];
   String? _user = alex.userId;
   var _seq = 0;
@@ -277,6 +278,46 @@ class DemoBackend implements Backend {
 
   @override
   Future<void> unregisterDevice(String token) async {}
+
+  @override
+  Future<List<TaskDef>> loadCustomTasks(String householdId) async => List.of(_customTasks);
+
+  @override
+  Future<TaskDef> createCustomTask({
+    required String householdId,
+    required String name,
+    required TaskCategory category,
+    required int points,
+  }) async {
+    final t = TaskDef(
+      id: '$customTaskPrefix${_seq++}',
+      name: name,
+      category: category,
+      points: points,
+      dailyCap: customDailyCap,
+      isCustom: true,
+    );
+    _customTasks.add(t);
+    _changes.add(null);
+    return t;
+  }
+
+  @override
+  Future<void> deleteCustomTask(String taskId) async {
+    final i = _customTasks.indexWhere((t) => t.id == taskId);
+    if (i < 0) return;
+    final t = _customTasks[i];
+    _customTasks[i] = TaskDef(
+      id: t.id,
+      name: t.name,
+      category: t.category,
+      points: t.points,
+      dailyCap: t.dailyCap,
+      isCustom: true,
+      isDeleted: true,
+    );
+    _changes.add(null);
+  }
 
   @override
   Future<List<Mission>> loadMissions(String householdId) async =>
