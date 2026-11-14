@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/activity.dart';
 import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
@@ -141,6 +142,8 @@ class SupabaseBackend implements Backend {
         QuestionPack.light,
         for (final p in (couple['unlocked_packs'] as List?) ?? const []) ?QuestionPack.parse(p as String),
       },
+      homeLat: (couple['home_lat'] as num?)?.toDouble(),
+      homeLng: (couple['home_lng'] as num?)?.toDouble(),
     );
   }
 
@@ -205,6 +208,154 @@ class SupabaseBackend implements Backend {
             'has_kids': ?hasKids,
             'has_pets': ?hasPets,
           }).eq('id', householdId));
+
+  // ------------------------------------------------------- daily stars
+
+  @override
+  Future<void> setHome(String householdId, double lat, double lng) =>
+      _guard(() => _client.from('couples').update({'home_lat': lat, 'home_lng': lng}).eq('id', householdId));
+
+  @override
+  Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since) => _guard(() async {
+        final rows = await _client
+            .from('daily_metrics')
+            .select('user_id, day, steps, sleep_minutes')
+            .eq('couple_id', householdId)
+            .gte('day', dateKey(since));
+        return [
+          for (final r in rows)
+            DailyMetrics(
+              userId: r['user_id'] as String,
+              day: parseDateKey(r['day'] as String),
+              steps: r['steps'] as int?,
+              sleepMinutes: r['sleep_minutes'] as int?,
+            ),
+        ];
+      });
+
+  @override
+  Future<void> saveMetrics(String householdId, List<DailyMetrics> mine) => _guard(() async {
+        if (mine.isEmpty) return;
+        await _client.from('daily_metrics').upsert([
+          for (final m in mine)
+            {
+              'user_id': currentUserId,
+              'couple_id': householdId,
+              'day': dateKey(m.day),
+              'steps': m.steps,
+              'sleep_minutes': m.sleepMinutes,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            },
+        ], onConflict: 'user_id,day');
+      });
+
+  @override
+  Future<List<Snap>> loadSnaps(String householdId, DateTime since) => _guard(() async {
+        final rows = await _client.from('snaps').select().eq('couple_id', householdId).gte('day', dateKey(since));
+        return [for (final r in rows) _snapFromRow(r)];
+      });
+
+  @override
+  Future<Snap> uploadSnap(String householdId, DateTime day, Uint8List jpeg) => _guard(() async {
+        final path = '$householdId/$currentUserId/${dateKey(day)}.jpg';
+        await _client.storage
+            .from('snaps')
+            .uploadBinary(path, jpeg, fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true));
+        final row = await _client
+            .from('snaps')
+            .insert({'couple_id': householdId, 'user_id': currentUserId, 'day': dateKey(day), 'path': path})
+            .select()
+            .single();
+        return _snapFromRow(row);
+      });
+
+  @override
+  Future<Uint8List?> snapPhoto(Snap snap) => _guard(() async {
+        final path = snap.path;
+        if (path == null) return null;
+        return _client.storage.from('snaps').download(path);
+      });
+
+  static Snap _snapFromRow(Map<String, dynamic> r) => Snap(
+        id: r['id'] as String,
+        userId: r['user_id'] as String,
+        day: parseDateKey(r['day'] as String),
+        takenAt: DateTime.parse(r['created_at'] as String),
+        path: r['path'] as String?,
+      );
+
+  @override
+  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since) => _guard(() async {
+        final rows = await _client
+            .from('together_sessions')
+            .select('*, together_pings(user_id, at, lat, lng)')
+            .eq('couple_id', householdId)
+            .gte('started_at', since.subtract(const Duration(days: 1)).toIso8601String())
+            .order('started_at');
+        return [for (final r in rows) _sessionFromRow(r)];
+      });
+
+  static TogetherSession _sessionFromRow(Map<String, dynamic> r) {
+    DateTime? at(String k) => r[k] == null ? null : DateTime.parse(r[k] as String);
+    return TogetherSession(
+      id: r['id'] as String,
+      startedBy: r['started_by'] as String,
+      startedAt: DateTime.parse(r['started_at'] as String),
+      joinedBy: r['joined_by'] as String?,
+      joinedAt: at('joined_at'),
+      endedAt: at('ended_at'),
+      pings: [
+        for (final p in (r['together_pings'] as List?) ?? const [])
+          TogetherPing(
+            userId: p['user_id'] as String,
+            at: DateTime.parse(p['at'] as String),
+            lat: (p['lat'] as num).toDouble(),
+            lng: (p['lng'] as num).toDouble(),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Future<TogetherSession> startTogether(String householdId) => _guard(() async {
+        final row = await _client
+            .from('together_sessions')
+            .insert({'couple_id': householdId, 'started_by': currentUserId})
+            .select()
+            .single();
+        return _sessionFromRow(row);
+      });
+
+  @override
+  Future<void> joinTogether(String sessionId) => _guard(() => _client
+      .from('together_sessions')
+      .update({'joined_by': currentUserId, 'joined_at': DateTime.now().toUtc().toIso8601String()})
+      .eq('id', sessionId)
+      .isFilter('joined_by', null));
+
+  @override
+  Future<void> endTogether(String sessionId) => _guard(() => _client
+      .from('together_sessions')
+      .update({'ended_at': DateTime.now().toUtc().toIso8601String(), 'ended_by': currentUserId})
+      .eq('id', sessionId)
+      .isFilter('ended_at', null));
+
+  @override
+  Future<bool> addPing(String sessionId, double lat, double lng) async {
+    try {
+      await _client.from('together_pings').insert({
+        'session_id': sessionId,
+        'user_id': currentUserId,
+        'lat': lat,
+        'lng': lng,
+      });
+      return true;
+    } on PostgrestException catch (e) {
+      // Row-level security refuses pings once the session is over.
+      if (e.code == '42501') return false;
+      throw BackendException(e.message);
+    }
+  }
 
   @override
   Future<List<TaskLog>> loadLogs(String householdId) => _guard(() async {
@@ -444,6 +595,24 @@ class SupabaseBackend implements Backend {
             event: PostgresChangeEvent.all,
             schema: 'public',
             table: 'household_tasks',
+            filter: filter('couple_id'),
+            callback: ping)
+        .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'daily_metrics',
+            filter: filter('couple_id'),
+            callback: ping)
+        .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'snaps',
+            filter: filter('couple_id'),
+            callback: ping)
+        .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'together_sessions',
             filter: filter('couple_id'),
             callback: ping)
         .onPostgresChanges(

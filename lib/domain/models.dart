@@ -45,6 +45,8 @@ class Household {
     required this.createdAt,
     required this.members,
     this.unlockedPacks = const {QuestionPack.light},
+    this.homeLat,
+    this.homeLng,
   });
 
   final String id;
@@ -57,6 +59,11 @@ class Household {
 
   /// Bond question packs this household can use (shared by both partners).
   final Set<QuestionPack> unlockedPacks;
+
+  /// Where the couple lives; time near it doesn't count as "out together".
+  final double? homeLat;
+  final double? homeLng;
+  bool get hasHome => homeLat != null && homeLng != null;
 
   bool get isComplete => members.length >= 2;
 
@@ -73,6 +80,7 @@ class Household {
     bool? hasPets,
     List<Member>? members,
     Set<QuestionPack>? unlockedPacks,
+    (double, double)? home,
   }) =>
       Household(
         id: id,
@@ -83,6 +91,8 @@ class Household {
         createdAt: createdAt,
         members: members ?? this.members,
         unlockedPacks: unlockedPacks ?? this.unlockedPacks,
+        homeLat: home?.$1 ?? homeLat,
+        homeLng: home?.$2 ?? homeLng,
       );
 }
 

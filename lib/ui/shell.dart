@@ -13,6 +13,7 @@ import 'log_task_screen.dart';
 import 'missions.dart';
 import 'settings_screen.dart';
 import 'shop.dart';
+import 'snap_screen.dart';
 import 'weeks_screen.dart';
 
 class Shell extends StatefulWidget {
@@ -25,6 +26,7 @@ class Shell extends StatefulWidget {
 class _ShellState extends State<Shell> {
   int _tab = 0;
   ValueNotifier<int>? _openBond;
+  ValueNotifier<int>? _openSnap;
 
   @override
   void didChangeDependencies() {
@@ -34,11 +36,17 @@ class _ShellState extends State<Shell> {
       _openBond?.removeListener(_showBond);
       _openBond = openBond..addListener(_showBond);
     }
+    final openSnap = AppScope.of(context).snapPrompts.openSnap;
+    if (openSnap != _openSnap) {
+      _openSnap?.removeListener(_showSnap);
+      _openSnap = openSnap..addListener(_showSnap);
+    }
   }
 
   @override
   void dispose() {
     _openBond?.removeListener(_showBond);
+    _openSnap?.removeListener(_showSnap);
     super.dispose();
   }
 
@@ -47,6 +55,14 @@ class _ShellState extends State<Shell> {
     if (!mounted) return;
     Navigator.of(context).popUntil((r) => r.isFirst);
     setState(() => _tab = 1);
+  }
+
+  /// A Snap moment reminder was tapped.
+  void _showSnap() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    setState(() => _tab = 2);
+    openSnap(context);
   }
 
   static const _titles = ['Our home', 'Bond', 'Achievements'];

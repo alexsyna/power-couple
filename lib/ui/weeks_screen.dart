@@ -6,6 +6,7 @@ import '../state/app_controller.dart';
 import 'badges_card.dart';
 import 'common.dart';
 import 'home_screen.dart';
+import 'stars_card.dart';
 
 /// Weekly outcomes, newest first, plus streak and boss badges. Everything is
 /// recalculated from logs, so past weeks update after backdating or delete.
@@ -38,6 +39,8 @@ class WeeksScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
+        const StarsCard(),
+        const SizedBox(height: 14),
         Row(children: [
           bigTile('🔥', '${app.streak}', 'win streak', Vivid.flame),
           const SizedBox(width: 12),

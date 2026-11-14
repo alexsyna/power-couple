@@ -5,13 +5,19 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/backend.dart';
+import '../domain/activity.dart';
 import '../domain/badges.dart';
+import '../domain/calendar.dart';
 import '../domain/catalog.dart';
 import '../domain/engine.dart';
 import '../domain/missions.dart';
 import '../domain/questions.dart';
 import '../domain/models.dart';
+import '../domain/stars.dart';
+import 'health_sync.dart';
 import 'push.dart';
+import 'snap_prompts.dart';
+import 'together_tracker.dart';
 
 enum AppStatus { loading, signedOut, needsHousehold, ready }
 
@@ -34,6 +40,11 @@ class AppController extends ChangeNotifier {
   /// Bond push notifications on this phone.
   late final push = PushNotifications(backend, prefs);
 
+  /// Daily stars: Apple Health, Snap moment reminders and Out together GPS.
+  late final health = HealthSync(prefs);
+  late final snapPrompts = SnapPrompts(prefs);
+  late final tracker = TogetherTracker(backend)..onStopped = refresh;
+
   AppStatus status = AppStatus.loading;
   Household? household;
   List<TaskLog> logs = const [];
@@ -41,6 +52,14 @@ class AppController extends ChangeNotifier {
 
   /// The household's own tasks, deleted ones included.
   List<TaskDef> customTasks = const [];
+
+  /// Recent days' measurements for both partners.
+  List<DailyMetrics> metrics = const [];
+  List<Snap> snaps = const [];
+  List<TogetherSession> sessions = const [];
+
+  /// How many days back stars are shown.
+  static const starDays = 7;
 
   /// Bond: who answered when (all), and the answers I'm allowed to read.
   List<AnswerMeta> answerLog = const [];
@@ -94,8 +113,13 @@ class AppController extends ChangeNotifier {
       missions = m;
       answerLog = await backend.loadAnswerLog(h.id);
       answers = await backend.loadAnswers(h.id);
+      final since = addDays(HouseholdCalendar(h.timezone).localDate(now), -starDays);
+      metrics = await backend.loadMetrics(h.id, since);
+      snaps = await backend.loadSnaps(h.id, since);
+      sessions = await backend.loadTogether(h.id, since);
       _set(AppStatus.ready, h, l);
       push.attach(me).ignore();
+      _afterLoad();
       _watch(h.id);
       loadError = null;
     } on BackendException catch (e) {
@@ -239,6 +263,162 @@ class AppController extends ChangeNotifier {
     await refresh();
   }
 
+  // ------------------------------------------------------------ stars
+
+  StarsCalculator get stars => StarsCalculator(
+        household: household!,
+        calendar: engine.calendar,
+        logs: logs,
+        metrics: metrics,
+        snaps: snaps,
+        sessions: sessions,
+        now: now,
+        homeLat: household!.homeLat,
+        homeLng: household!.homeLng,
+      );
+
+  /// Newest first: today, yesterday, …
+  List<DayStars> get recentStars {
+    final c = stars;
+    return [for (var i = 0; i < starDays; i++) c.day(addDays(today, -i))];
+  }
+
+  DateTime? _lastHealthSync;
+
+  /// Background work after each load: Health, Snap reminders, GPS.
+  void _afterLoad() {
+    syncHealth().ignore();
+    snapPrompts
+        .schedule(
+          householdId: household!.id,
+          calendar: engine.calendar,
+          now: now,
+          snappedToday: stars.snapOf(me, today) != null,
+        )
+        .ignore();
+    _resumeTracking();
+    // Keep the together minutes fresh on screen while a session runs.
+    if (activeSession != null) {
+      _sessionTimer ??= Timer.periodic(const Duration(minutes: 2), (_) {
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) refresh();
+      });
+    } else {
+      _sessionTimer?.cancel();
+      _sessionTimer = null;
+    }
+  }
+
+  Timer? _sessionTimer;
+
+  /// Reads my Apple Health numbers and saves the ones that changed. At most
+  /// every 10 minutes unless [force]d: every save makes my partner's phone
+  /// reload too.
+  Future<void> syncHealth({bool force = false}) async {
+    if (!health.connected || household == null) return;
+    final last = _lastHealthSync;
+    if (!force && last != null && DateTime.now().difference(last) < const Duration(minutes: 10)) return;
+    _lastHealthSync = DateTime.now();
+    final h = household!;
+    final mine = await health.read(me, engine.calendar, today);
+    final changed = [
+      for (final m in mine)
+        if (!metrics.any((x) => x.userId == me && x.day == m.day && x.sameValues(m)) &&
+            (m.steps != null || m.sleepMinutes != null))
+          m,
+    ];
+    if (changed.isEmpty) return;
+    await backend.saveMetrics(h.id, changed);
+    metrics = [
+      for (final x in metrics) if (!(x.userId == me && changed.any((m) => m.day == x.day))) x,
+      ...changed,
+    ];
+    notifyListeners();
+  }
+
+  Future<bool> connectHealth() async {
+    final ok = await health.connect();
+    await syncHealth(force: true);
+    notifyListeners();
+    return ok;
+  }
+
+  Future<void> disconnectHealth() async {
+    await health.disconnect();
+    notifyListeners();
+  }
+
+  // Snap moments
+
+  DateTime get snapPromptToday => stars.snapPromptAt(today);
+  String get snapPromptTextToday => snapPromptText(household!.id, dateKey(today));
+  bool get snapOpen => !now.isBefore(snapPromptToday);
+
+  final Map<String, Future<Uint8List?>> _snapPhotos = {};
+  Future<Uint8List?> snapPhoto(Snap s) => _snapPhotos.putIfAbsent(s.id, () => backend.snapPhoto(s));
+
+  Future<void> takeSnap(Uint8List jpeg) async {
+    await backend.uploadSnap(household!.id, today, jpeg);
+    await refresh();
+  }
+
+  Future<void> setSnapPrompts(bool on) async {
+    await snapPrompts.setEnabled(on);
+    _afterLoad();
+    notifyListeners();
+  }
+
+  // Out together
+
+  /// The running session, if any (there's at most one at a time).
+  TogetherSession? get activeSession {
+    for (final s in sessions.reversed) {
+      if (s.isActive(now)) return s;
+    }
+    return null;
+  }
+
+  bool _inSession(TogetherSession s) => s.startedBy == me || s.joinedBy == me;
+
+  void _resumeTracking() {
+    final s = activeSession;
+    if (s != null && _inSession(s)) {
+      if (tracker.sessionId != s.id) tracker.start(s.id).ignore();
+    } else if (tracker.sessionId != null) {
+      tracker.stop().ignore();
+    }
+  }
+
+  Future<void> startTogether() async {
+    final problem = await TogetherTracker.ensurePermission();
+    if (problem != null) throw BackendException(problem);
+    final s = await backend.startTogether(household!.id);
+    await tracker.start(s.id);
+    await refresh();
+  }
+
+  Future<void> joinTogether(TogetherSession s) async {
+    final problem = await TogetherTracker.ensurePermission();
+    if (problem != null) throw BackendException(problem);
+    await backend.joinTogether(s.id);
+    await tracker.start(s.id);
+    await refresh();
+  }
+
+  Future<void> endTogether(TogetherSession s) async {
+    await backend.endTogether(s.id);
+    await tracker.stop();
+    await refresh();
+  }
+
+  /// Saves where this phone is as the household's home.
+  Future<void> setHomeHere() async {
+    final problem = await TogetherTracker.ensurePermission();
+    if (problem != null) throw BackendException(problem);
+    final p = await TogetherTracker.here();
+    await backend.setHome(household!.id, p.latitude, p.longitude);
+    await refresh();
+  }
+
   List<TaskDef> get visibleTasks =>
       visibleCatalog(hasKids: household!.hasKids, hasPets: household!.hasPets, custom: customTasks);
 
@@ -345,6 +525,7 @@ class AppController extends ChangeNotifier {
       backend.signUp(email: email, password: password, displayName: name);
 
   Future<void> signOut() async {
+    await tracker.stop();
     await push.detach();
     await backend.signOut();
   }
@@ -385,6 +566,8 @@ class AppController extends ChangeNotifier {
     _authSub?.cancel();
     _changesSub?.cancel();
     _lifecycle.dispose();
+    _sessionTimer?.cancel();
+    tracker.stop();
     super.dispose();
   }
 }

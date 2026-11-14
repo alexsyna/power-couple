@@ -40,7 +40,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a profile photo your partner will see.</string>
+	<string>Take Snap moment photos and your profile photo, which your partner will see.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Read your steps and sleep to earn daily stars with your partner.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Power Couple never writes to Apple Health.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Count the time you spend out together. Your location is only recorded during an Out together session.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a profile photo your partner will see.</string>
 	<key>UIApplicationSceneManifest</key>
@@ -69,6 +75,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>location</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

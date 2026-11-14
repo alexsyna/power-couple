@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/activity.dart';
 import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
@@ -115,6 +116,36 @@ abstract class Backend {
 
   /// Hides the task from the list; logs already made keep their points.
   Future<void> deleteCustomTask(String taskId);
+
+  // ------------------------------------------------------- daily stars
+
+  /// Saves where the couple lives (time near home isn't "out together").
+  Future<void> setHome(String householdId, double lat, double lng);
+
+  /// Both partners' Apple Health numbers from [since] (a local date).
+  Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since);
+
+  /// Saves my Apple Health numbers.
+  Future<void> saveMetrics(String householdId, List<DailyMetrics> mine);
+
+  Future<List<Snap>> loadSnaps(String householdId, DateTime since);
+
+  /// Uploads my photo for [day]'s Snap moment. One per person per day.
+  Future<Snap> uploadSnap(String householdId, DateTime day, Uint8List jpeg);
+
+  /// The photo's bytes, or null if it has none (demo data).
+  Future<Uint8List?> snapPhoto(Snap snap);
+
+  /// Sessions started from [since], each with its pings.
+  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since);
+
+  Future<TogetherSession> startTogether(String householdId);
+  Future<void> joinTogether(String sessionId);
+  Future<void> endTogether(String sessionId);
+
+  /// Records where my phone is during a session. Returns false once the
+  /// session has ended (so the phone can stop tracking).
+  Future<bool> addPing(String sessionId, double lat, double lng);
 
   /// Emits when the household's members, settings or logs change elsewhere
   /// (e.g. on the partner's phone).

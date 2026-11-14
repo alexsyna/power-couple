@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:math';
 
 import '../domain/calendar.dart';
+import '../domain/activity.dart';
 import '../domain/catalog.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
@@ -27,6 +28,10 @@ class DemoBackend implements Backend {
   final List<TaskLog> _logs = [];
   final List<Mission> _missions = [];
   final List<TaskDef> _customTasks = [];
+  final List<DailyMetrics> _metrics = [];
+  final List<Snap> _snaps = [];
+  final Map<String, Uint8List> _snapPhotos = {};
+  final List<TogetherSession> _sessions = [];
   final List<Answer> _answers = [];
   String? _user = alex.userId;
   var _seq = 0;
@@ -105,6 +110,7 @@ class DemoBackend implements Backend {
       Mission(id: 'm3', title: 'Sort the winter clothes', dueOn: today.add(const Duration(days: 9)), createdAt: now, createdBy: alex.userId),
       Mission(id: 'm4', title: 'Renew home insurance', dueOn: today, createdAt: now, createdBy: sam.userId, completedAt: now.subtract(const Duration(hours: 5)), completedBy: sam.userId, assignee: sam.userId),
     ]);
+    _seedStars(now, today);
     _logs.add(TaskLog(
       id: 'seed-${_seq++}',
       taskId: otherTaskId,
@@ -112,6 +118,45 @@ class DemoBackend implements Backend {
       loggedBy: sam.userId,
       doneAt: now.subtract(const Duration(days: 2)),
       createdAt: now.subtract(const Duration(days: 2)),
+    ));
+  }
+
+  /// A week of steps, sleep, snaps and one evening out, so the stars card
+  /// has something to show.
+  void _seedStars(DateTime now, DateTime today) {
+    final cal = HouseholdCalendar(_household.timezone);
+    const alexSteps = [9200, 6100, 4300, 8800, 10400, 5200, 7600];
+    const samSteps = [8100, 5400, 3200, 9900, 7300, 2900, 3900];
+    const alexSleep = [450, 380, 330, 425, 470, 300, 405];
+    const samSleep = [430, 410, 290, 440, 395, 365, 0];
+    for (var i = 6; i >= 0; i--) {
+      final day = addDays(today, -i);
+      _metrics
+        ..add(DailyMetrics(userId: alex.userId, day: day, steps: alexSteps[i], sleepMinutes: alexSleep[i]))
+        ..add(DailyMetrics(userId: sam.userId, day: day, steps: samSteps[i], sleepMinutes: samSleep[i] == 0 ? null : samSleep[i]));
+      if (i == 0) continue;
+      final m = snapPromptMinute(_household.id, dateKey(day));
+      final prompt = cal.instantAt(day, m ~/ 60, m % 60);
+      for (final (who, after) in [(alex.userId, 20 + 25 * i), (sam.userId, 35 * i)]) {
+        if (i == 4 && who == sam.userId) continue; // Sam missed one
+        _snaps.add(Snap(id: 'snap-${_seq++}', userId: who, day: day, takenAt: prompt.add(Duration(minutes: after))));
+      }
+    }
+    // Yesterday evening: 75 minutes out together, a few blocks from home.
+    final start = cal.instantAt(addDays(today, -1), 19, 0);
+    _household = _household.copyWith(home: (37.9838, 23.7275));
+    _sessions.add(TogetherSession(
+      id: 'together-${_seq++}',
+      startedBy: alex.userId,
+      startedAt: start,
+      joinedBy: sam.userId,
+      joinedAt: start,
+      endedAt: start.add(const Duration(minutes: 80)),
+      pings: [
+        for (var m = 0; m < 75; m++)
+          for (final (who, dLat) in [(alex.userId, 0.0), (sam.userId, 0.0002)])
+            TogetherPing(userId: who, at: start.add(Duration(minutes: m)), lat: 37.9938 + dLat, lng: 23.7375),
+      ],
     ));
   }
 
@@ -278,6 +323,101 @@ class DemoBackend implements Backend {
 
   @override
   Future<void> unregisterDevice(String token) async {}
+
+  // ------------------------------------------------------- daily stars
+
+  @override
+  Future<void> setHome(String householdId, double lat, double lng) async {
+    _household = _household.copyWith(home: (lat, lng));
+    _changes.add(null);
+  }
+
+  @override
+  Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since) async =>
+      [for (final m in _metrics) if (!m.day.isBefore(since)) m];
+
+  @override
+  Future<void> saveMetrics(String householdId, List<DailyMetrics> mine) async {
+    for (final m in mine) {
+      _metrics.removeWhere((x) => x.userId == _user && x.day == m.day);
+      _metrics.add(DailyMetrics(userId: _user!, day: m.day, steps: m.steps, sleepMinutes: m.sleepMinutes));
+    }
+  }
+
+  @override
+  Future<List<Snap>> loadSnaps(String householdId, DateTime since) async =>
+      [for (final s in _snaps) if (!s.day.isBefore(since)) s];
+
+  @override
+  Future<Snap> uploadSnap(String householdId, DateTime day, Uint8List jpeg) async {
+    if (_snaps.any((s) => s.userId == _user && s.day == day)) {
+      throw BackendException('You already snapped today');
+    }
+    final snap = Snap(
+      id: 'snap-${_seq++}',
+      userId: _user!,
+      day: day,
+      takenAt: DateTime.now().toUtc(),
+      path: 'demo/${_seq++}',
+    );
+    _snapPhotos[snap.path!] = jpeg;
+    _snaps.add(snap);
+    _changes.add(null);
+    return snap;
+  }
+
+  @override
+  Future<Uint8List?> snapPhoto(Snap snap) async => _snapPhotos[snap.path];
+
+  @override
+  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since) async =>
+      [for (final s in _sessions) if (!s.startedAt.isBefore(since.subtract(const Duration(days: 1)))) s];
+
+  int _sessionIndex(String id) => _sessions.indexWhere((s) => s.id == id);
+
+  TogetherSession _copySession(TogetherSession s, {String? joinedBy, DateTime? joinedAt, DateTime? endedAt}) =>
+      TogetherSession(
+        id: s.id,
+        startedBy: s.startedBy,
+        startedAt: s.startedAt,
+        joinedBy: joinedBy ?? s.joinedBy,
+        joinedAt: joinedAt ?? s.joinedAt,
+        endedAt: endedAt ?? s.endedAt,
+        pings: s.pings,
+      );
+
+  @override
+  Future<TogetherSession> startTogether(String householdId) async {
+    final s = TogetherSession(id: 'together-${_seq++}', startedBy: _user!, startedAt: DateTime.now().toUtc());
+    _sessions.add(s);
+    _changes.add(null);
+    return s;
+  }
+
+  @override
+  Future<void> joinTogether(String sessionId) async {
+    final i = _sessionIndex(sessionId);
+    if (i < 0 || _sessions[i].joinedBy != null) return;
+    _sessions[i] = _copySession(_sessions[i], joinedBy: _user, joinedAt: DateTime.now().toUtc());
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> endTogether(String sessionId) async {
+    final i = _sessionIndex(sessionId);
+    if (i < 0 || _sessions[i].endedAt != null) return;
+    _sessions[i] = _copySession(_sessions[i], endedAt: DateTime.now().toUtc());
+    _changes.add(null);
+  }
+
+  @override
+  Future<bool> addPing(String sessionId, double lat, double lng) async {
+    final i = _sessionIndex(sessionId);
+    if (i < 0 || !_sessions[i].isActive(DateTime.now().toUtc())) return false;
+    final s = _sessions[i];
+    _sessions[i] = s.withPings([...s.pings, TogetherPing(userId: _user!, at: DateTime.now().toUtc(), lat: lat, lng: lng)]);
+    return true;
+  }
 
   @override
   Future<List<TaskDef>> loadCustomTasks(String householdId) async => List.of(_customTasks);

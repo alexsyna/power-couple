@@ -10,6 +10,8 @@ import 'intro_screen.dart';
 import 'onboarding_screen.dart';
 import 'profile_card.dart';
 import 'shop.dart';
+import '../state/health_sync.dart';
+import '../state/together_tracker.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -101,6 +103,8 @@ class SettingsScreen extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         const _NotificationsCard(),
+        const SizedBox(height: 14),
+        const _StarsSettingsCard(),
         const SizedBox(height: 14),
         const ShopCard(),
         const SizedBox(height: 14),
@@ -200,21 +204,112 @@ class _NotificationsCardState extends State<_NotificationsCard> {
       listenable: push,
       builder: (context, _) => SectionCard(
         title: '🔔 Notifications',
-        child: SettingRow(
-          emoji: '💞',
-          title: 'Bond questions',
-          subtitle: push.supported
-              ? 'When $partner answers, and when both answers are in'
-              : kIsWeb
-                  ? 'Available in the iPhone app'
-                  : 'Not available in this version',
-          color: Vivid.berry,
-          trailing: Switch(
-            value: push.enabled,
-            onChanged: push.supported && !_busy ? _toggle : null,
+        child: Column(children: [
+          SettingRow(
+            emoji: '💞',
+            title: 'Bond questions',
+            subtitle: push.supported
+                ? 'When $partner answers, and when both answers are in'
+                : kIsWeb
+                    ? 'Available in the iPhone app'
+                    : 'Not available in this version',
+            color: Vivid.berry,
+            trailing: Switch(
+              value: push.enabled,
+              onChanged: push.supported && !_busy ? _toggle : null,
+            ),
           ),
-        ),
+          SettingRow(
+            emoji: '📸',
+            title: 'Snap moments',
+            subtitle: app.snapPrompts.enabled || !kIsWeb
+                ? 'A surprise photo prompt once a day'
+                : 'Available in the iPhone app',
+            color: Vivid.flame,
+            trailing: Switch(
+              value: app.snapPrompts.enabled,
+              onChanged: kIsWeb
+                  ? null
+                  : (on) async {
+                      if (on && !push.enabled) await _toggle(true);
+                      await app.setSnapPrompts(on);
+                    },
+            ),
+          ),
+        ]),
       ),
+    );
+  }
+}
+
+/// Where daily stars get their data: Apple Health and the home location.
+class _StarsSettingsCard extends StatefulWidget {
+  const _StarsSettingsCard();
+
+  @override
+  State<_StarsSettingsCard> createState() => _StarsSettingsCardState();
+}
+
+class _StarsSettingsCardState extends State<_StarsSettingsCard> {
+  bool _busy = false;
+
+  Future<void> _run(Future<Object?> Function() body, String done) async {
+    setState(() => _busy = true);
+    try {
+      await body();
+      if (mounted) showMessage(context, done, color: Vivid.grass);
+    } on BackendException catch (e) {
+      if (mounted) showMessage(context, e.message, color: Vivid.berry);
+    } catch (_) {
+      if (mounted) showMessage(context, 'Something went wrong. Try again.', color: Vivid.berry);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final health = app.health;
+    final home = app.household!.hasHome;
+    return SectionCard(
+      title: '⭐ Daily stars',
+      child: Column(children: [
+        SettingRow(
+          emoji: '❤️',
+          title: 'Apple Health',
+          subtitle: !HealthSync.supported
+              ? 'Available in the iPhone app'
+              : health.connected
+                  ? 'Steps and sleep. Change what\'s shared in the Health app → Sharing.'
+                  : 'Share steps and sleep for daily stars',
+          color: Vivid.berry,
+          trailing: HealthSync.supported
+              ? Switch(
+                  value: health.connected,
+                  onChanged: _busy
+                      ? null
+                      : (on) => on
+                          ? _run(app.connectHealth, '❤️ Apple Health connected')
+                          : _run(app.disconnectHealth, 'Apple Health disconnected'),
+                )
+              : null,
+        ),
+        SettingRow(
+          emoji: '🏠',
+          title: 'Home location',
+          subtitle: home
+              ? 'Set. Time near home doesn\'t count as out together.'
+              : 'Tap at home so time there doesn\'t count as out together',
+          color: Vivid.sky,
+          trailing: TogetherTracker.supported
+              ? TextButton(
+                  onPressed: _busy ? null : () => _run(app.setHomeHere, '🏠 Home saved'),
+                  child: Text(home ? 'Update' : "I'm home"),
+                )
+              : null,
+        ),
+      ]),
     );
   }
 }
