@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../domain/engine.dart';
 import '../state/app_controller.dart';
 import 'badges_card.dart';
+import 'castle_climb.dart';
 import 'common.dart';
 import 'home_screen.dart';
 import 'stars_card.dart';
@@ -39,6 +40,8 @@ class WeeksScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
+        const CastleCard(),
+        const SizedBox(height: 14),
         const StarsCard(),
         const SizedBox(height: 14),
         Row(children: [

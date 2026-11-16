@@ -4,8 +4,9 @@
 /// Chores     1+ task logged       more than usual        2+ more than usual
 /// Steps      both 3k              both 5k                both 8k
 /// Sleep      both 5h              both 6h                both 7h
+/// Bedtime    both slept           within 2h of each      within 1h of each
+///                                 other                  other
 /// Snap       both snapped         both within 2h         both within 1h
-/// Together   both joined          30 min together        1h+ together
 ///
 /// "Both" means the partner who did less sets the couple's level.
 library;
@@ -19,8 +20,8 @@ enum StarActivity {
   chores('Chores', '🧹'),
   steps('Steps', '👟'),
   sleep('Sleep', '😴'),
-  snap('Snap moment', '📸'),
-  together('Out together', '💑');
+  bedtime('Bedtime sync', '🛏️'),
+  snap('Snap moment', '📸');
 
   const StarActivity(this.label, this.emoji);
   final String label;
@@ -33,7 +34,7 @@ const maxStars = 3;
 const stepTiers = [3000, 5000, 8000];
 const sleepTiers = [5 * 60, 6 * 60, 7 * 60];
 const snapTiers = [Duration(hours: 2), Duration(hours: 1)]; // for ⭐⭐, ⭐⭐⭐
-const togetherTiers = [30, 60]; // minutes for ⭐⭐, ⭐⭐⭐
+const bedtimeTiers = [Duration(hours: 2), Duration(hours: 1)]; // gap for ⭐⭐, ⭐⭐⭐
 
 /// Chores "usual" looks back this far.
 const usualWindowDays = 28;
@@ -65,10 +66,12 @@ int choreStars(int tasks, double usual) {
   return 1;
 }
 
-int togetherStars({required bool bothJoined, required int minutes}) {
-  if (minutes >= togetherTiers[1]) return 3;
-  if (minutes >= togetherTiers[0]) return 2;
-  return bothJoined ? 1 : 0;
+/// [gap] between the two bedtimes; null when one of them has no data.
+int bedtimeStars(Duration? gap) {
+  if (gap == null) return 0;
+  if (gap <= bedtimeTiers[1]) return 3;
+  if (gap <= bedtimeTiers[0]) return 2;
+  return 1;
 }
 
 /// One activity on one day.
@@ -87,7 +90,7 @@ class ActivityStars {
   /// The couple's stars, 0..3.
   final int stars;
 
-  /// Each partner's own level, where that makes sense (not Out together).
+  /// Each partner's own level, where that makes sense (not Bedtime sync).
   final Map<String, int> personal;
 
   /// Each partner's raw number: steps, sleep minutes, tasks, or minutes
@@ -97,7 +100,7 @@ class ActivityStars {
   /// Chores only: the household's usual tasks per day.
   final double? usual;
 
-  /// Chores: tasks logged by the household. Together: minutes together.
+  /// Chores: tasks logged by the household. Bedtime: minutes apart.
   final int? coupleValue;
 }
 
@@ -119,10 +122,7 @@ class StarsCalculator {
     required this.logs,
     required this.metrics,
     required this.snaps,
-    required this.sessions,
     required this.now,
-    this.homeLat,
-    this.homeLng,
   });
 
   final Household household;
@@ -130,10 +130,7 @@ class StarsCalculator {
   final List<TaskLog> logs;
   final List<DailyMetrics> metrics;
   final List<Snap> snaps;
-  final List<TogetherSession> sessions;
   final DateTime now;
-  final double? homeLat;
-  final double? homeLng;
 
   List<String> get _members => [for (final m in household.members) m.userId];
 
@@ -147,8 +144,8 @@ class StarsCalculator {
         StarActivity.chores: chores(day),
         StarActivity.steps: steps(day),
         StarActivity.sleep: sleep(day),
+        StarActivity.bedtime: bedtime(day),
         StarActivity.snap: snap(day),
-        StarActivity.together: together(day),
       });
 
   // ---------------------------------------------------------------- chores
@@ -234,18 +231,23 @@ class StarsCalculator {
     return ActivityStars(activity: StarActivity.snap, stars: couple, personal: personal, values: values);
   }
 
-  // -------------------------------------------------------------- together
+  // --------------------------------------------------------------- bedtime
 
-  List<TogetherSession> sessionsOn(DateTime day) =>
-      [for (final s in sessions) if (calendar.localDate(s.startedAt) == day) s];
-
-  ActivityStars together(DateTime day) {
-    final list = sessionsOn(day);
-    final minutes = list.fold(0, (n, s) => n + s.togetherMinutes(now, homeLat: homeLat, homeLng: homeLng));
+  /// Values are each partner's bedtime as minutes after 6 pm the evening
+  /// before, so the screen can show it; coupleValue is the gap in minutes.
+  ActivityStars bedtime(DateTime day) {
+    final times = <String, DateTime>{};
+    for (final u in _members) {
+      final at = _metric(u, day)?.bedAt;
+      if (at != null) times[u] = at;
+    }
+    final evening = calendar.instantAt(addDays(day, -1), 18, 0);
+    final gap = _members.length < 2 || times.length < 2 ? null : times.values.first.difference(times.values.last).abs();
     return ActivityStars(
-      activity: StarActivity.together,
-      stars: togetherStars(bothJoined: list.any((s) => s.bothJoined), minutes: minutes),
-      coupleValue: minutes,
+      activity: StarActivity.bedtime,
+      stars: bedtimeStars(gap),
+      values: {for (final e in times.entries) e.key: e.value.difference(evening).inMinutes},
+      coupleValue: gap?.inMinutes,
     );
   }
 }

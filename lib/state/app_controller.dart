@@ -8,6 +8,7 @@ import '../data/backend.dart';
 import '../domain/activity.dart';
 import '../domain/badges.dart';
 import '../domain/calendar.dart';
+import '../domain/challenge.dart';
 import '../domain/catalog.dart';
 import '../domain/engine.dart';
 import '../domain/missions.dart';
@@ -17,7 +18,6 @@ import '../domain/stars.dart';
 import 'health_sync.dart';
 import 'push.dart';
 import 'snap_prompts.dart';
-import 'together_tracker.dart';
 
 enum AppStatus { loading, signedOut, needsHousehold, ready }
 
@@ -40,10 +40,9 @@ class AppController extends ChangeNotifier {
   /// Bond push notifications on this phone.
   late final push = PushNotifications(backend, prefs);
 
-  /// Daily stars: Apple Health, Snap moment reminders and Out together GPS.
+  /// Daily stars: Apple Health and Snap moment reminders.
   late final health = HealthSync(prefs);
   late final snapPrompts = SnapPrompts(prefs);
-  late final tracker = TogetherTracker(backend)..onStopped = refresh;
 
   AppStatus status = AppStatus.loading;
   Household? household;
@@ -56,7 +55,9 @@ class AppController extends ChangeNotifier {
   /// Recent days' measurements for both partners.
   List<DailyMetrics> metrics = const [];
   List<Snap> snaps = const [];
-  List<TogetherSession> sessions = const [];
+
+  /// Castle Climbs my household is in.
+  List<Challenge> challenges = const [];
 
   /// How many days back stars are shown.
   static const starDays = 7;
@@ -113,10 +114,16 @@ class AppController extends ChangeNotifier {
       missions = m;
       answerLog = await backend.loadAnswerLog(h.id);
       answers = await backend.loadAnswers(h.id);
-      final since = addDays(HouseholdCalendar(h.timezone).localDate(now), -starDays);
+      challenges = await backend.loadChallenges(h.id);
+      final cal = HouseholdCalendar(h.timezone);
+      final today = cal.localDate(now);
+      // Enough history for the star card and every climb still being scored.
+      var since = addDays(today, -starDays);
+      for (final c in challenges) {
+        if (c.phase(today, now) != ClimbPhase.revealed && c.startsOn.isBefore(since)) since = c.startsOn;
+      }
       metrics = await backend.loadMetrics(h.id, since);
       snaps = await backend.loadSnaps(h.id, since);
-      sessions = await backend.loadTogether(h.id, since);
       _set(AppStatus.ready, h, l);
       push.attach(me).ignore();
       _afterLoad();
@@ -271,10 +278,7 @@ class AppController extends ChangeNotifier {
         logs: logs,
         metrics: metrics,
         snaps: snaps,
-        sessions: sessions,
         now: now,
-        homeLat: household!.homeLat,
-        homeLng: household!.homeLng,
       );
 
   /// Newest first: today, yesterday, …
@@ -285,9 +289,20 @@ class AppController extends ChangeNotifier {
 
   DateTime? _lastHealthSync;
 
-  /// Background work after each load: Health, Snap reminders, GPS.
+  /// Background work after each load: Health and Snap reminders.
   void _afterLoad() {
-    syncHealth().ignore();
+    () async {
+      try {
+        await syncHealth();
+      } on BackendException catch (e) {
+        debugPrint('Health sync: ${e.message}');
+      }
+      try {
+        await syncClimbs();
+      } on BackendException catch (e) {
+        debugPrint('Climb sync: ${e.message}');
+      }
+    }();
     snapPrompts
         .schedule(
           householdId: household!.id,
@@ -296,19 +311,7 @@ class AppController extends ChangeNotifier {
           snappedToday: stars.snapOf(me, today) != null,
         )
         .ignore();
-    _resumeTracking();
-    // Keep the together minutes fresh on screen while a session runs.
-    if (activeSession != null) {
-      _sessionTimer ??= Timer.periodic(const Duration(minutes: 2), (_) {
-        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) refresh();
-      });
-    } else {
-      _sessionTimer?.cancel();
-      _sessionTimer = null;
-    }
   }
-
-  Timer? _sessionTimer;
 
   /// Reads my Apple Health numbers and saves the ones that changed. At most
   /// every 10 minutes unless [force]d: every save makes my partner's phone
@@ -367,55 +370,64 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Out together
+  // ------------------------------------------------------- castle climb
 
-  /// The running session, if any (there's at most one at a time).
-  TogetherSession? get activeSession {
-    for (final s in sessions.reversed) {
-      if (s.isActive(now)) return s;
+  String get teamName => [for (final m in household!.members) m.displayName].join(' & ');
+
+  /// Posts my team's stars to every climb still before its reveal. Only
+  /// changed rows are sent.
+  Future<void> syncClimbs() async {
+    final h = household;
+    if (h == null) return;
+    final calc = stars;
+    var changed = false;
+    for (final c in challenges) {
+      final phase = c.phase(today, now);
+      if (phase != ClimbPhase.climbing && phase != ClimbPhase.summitWait) continue;
+      final saved = {for (final s in c.scores) if (s.coupleId == h.id) s.key: s.stars};
+      final rows = [
+        for (final r in c.scoresFrom(calc, h.id, today))
+          if (saved[r.key] != r.stars) r,
+      ];
+      if (rows.isEmpty) continue;
+      try {
+        await backend.saveClimbScores(c.id, h.id, rows);
+        changed = true;
+      } on BackendException catch (e) {
+        debugPrint('Climb scores: ${e.message}');
+      }
     }
-    return null;
-  }
-
-  bool _inSession(TogetherSession s) => s.startedBy == me || s.joinedBy == me;
-
-  void _resumeTracking() {
-    final s = activeSession;
-    if (s != null && _inSession(s)) {
-      if (tracker.sessionId != s.id) tracker.start(s.id).ignore();
-    } else if (tracker.sessionId != null) {
-      tracker.stop().ignore();
+    if (changed && household?.id == h.id) {
+      challenges = await backend.loadChallenges(h.id);
+      notifyListeners();
     }
   }
 
-  Future<void> startTogether() async {
-    final problem = await TogetherTracker.ensurePermission();
-    if (problem != null) throw BackendException(problem);
-    final s = await backend.startTogether(household!.id);
-    await tracker.start(s.id);
+  Future<Challenge> createClimb({
+    required List<StarActivity> activities,
+    required int days,
+    required String? stakes,
+    required String banner,
+  }) async {
+    final (startsOn, revealAt) = climbSchedule(engine.calendar, now, days);
+    final c = await backend.createChallenge(
+      householdId: household!.id,
+      activities: activities,
+      days: days,
+      startsOn: startsOn,
+      revealAt: revealAt,
+      stakes: stakes,
+      teamName: teamName,
+      banner: banner,
+    );
     await refresh();
+    return c;
   }
 
-  Future<void> joinTogether(TogetherSession s) async {
-    final problem = await TogetherTracker.ensurePermission();
-    if (problem != null) throw BackendException(problem);
-    await backend.joinTogether(s.id);
-    await tracker.start(s.id);
-    await refresh();
-  }
+  Future<ClimbPreview?> previewClimb(String code) => backend.previewChallenge(code);
 
-  Future<void> endTogether(TogetherSession s) async {
-    await backend.endTogether(s.id);
-    await tracker.stop();
-    await refresh();
-  }
-
-  /// Saves where this phone is as the household's home.
-  Future<void> setHomeHere() async {
-    final problem = await TogetherTracker.ensurePermission();
-    if (problem != null) throw BackendException(problem);
-    final p = await TogetherTracker.here();
-    await backend.setHome(household!.id, p.latitude, p.longitude);
+  Future<void> joinClimb(String code, String banner) async {
+    await backend.joinChallenge(code: code, teamName: teamName, banner: banner);
     await refresh();
   }
 
@@ -525,7 +537,6 @@ class AppController extends ChangeNotifier {
       backend.signUp(email: email, password: password, displayName: name);
 
   Future<void> signOut() async {
-    await tracker.stop();
     await push.detach();
     await backend.signOut();
   }
@@ -566,8 +577,6 @@ class AppController extends ChangeNotifier {
     _authSub?.cancel();
     _changesSub?.cancel();
     _lifecycle.dispose();
-    _sessionTimer?.cancel();
-    tracker.stop();
     super.dispose();
   }
 }

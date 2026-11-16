@@ -63,15 +63,16 @@ class HealthSync {
       } catch (e) {
         debugPrint('Health steps: $e');
       }
-      final sleep = await _sleepFor(cal, day);
-      out.add(DailyMetrics(userId: userId, day: day, steps: steps, sleepMinutes: sleep));
+      final (sleep, bedAt) = await _sleepFor(cal, day);
+      out.add(DailyMetrics(userId: userId, day: day, steps: steps, sleepMinutes: sleep, bedAt: bedAt));
     }
     return out;
   }
 
   /// Sleep for the night that ended on the morning of [day]: 6 pm the day
   /// before until noon. Overlapping records (watch + phone) count once.
-  Future<int?> _sleepFor(HouseholdCalendar cal, DateTime day) async {
+  /// Also returns when the main sleep started, for Bedtime sync.
+  Future<(int?, DateTime?)> _sleepFor(HouseholdCalendar cal, DateTime day) async {
     final from = cal.instantAt(addDays(day, -1), 18, 0);
     final to = cal.instantAt(day, 12, 0);
     try {
@@ -86,11 +87,11 @@ class HealthSync {
       final intervals = asleep.isNotEmpty
           ? asleep
           : [for (final p in points) if (p.type == HealthDataType.SLEEP_IN_BED) (p.dateFrom, p.dateTo)];
-      if (intervals.isEmpty) return null;
-      return mergedMinutes(intervals, from, to);
+      if (intervals.isEmpty) return (null, null);
+      return (mergedMinutes(intervals, from, to), mainSleepStart(intervals, from, to));
     } catch (e) {
       debugPrint('Health sleep: $e');
-      return null;
+      return (null, null);
     }
   }
 }
@@ -116,4 +117,35 @@ int mergedMinutes(List<(DateTime, DateTime)> intervals, DateTime from, DateTime 
   }
   if (curStart != null) total += curEnd!.difference(curStart);
   return total.inMinutes;
+}
+
+/// When the night's main sleep began: intervals less than an hour apart
+/// (waking up briefly) form one block, and the longest block wins, so an
+/// evening nap on the sofa doesn't count as bedtime.
+DateTime? mainSleepStart(List<(DateTime, DateTime)> intervals, DateTime from, DateTime to) {
+  const wakeGap = Duration(hours: 1);
+  final sorted = [
+    for (final (a, b) in intervals)
+      if (b.isAfter(a)) (a.isBefore(from) ? from : a, b.isAfter(to) ? to : b),
+  ]..sort((x, y) => x.$1.compareTo(y.$1));
+  if (sorted.isEmpty) return null;
+  DateTime? bestStart;
+  var best = Duration.zero;
+  var (start, end) = sorted.first;
+  void close() {
+    if (end.difference(start) > best) {
+      best = end.difference(start);
+      bestStart = start;
+    }
+  }
+  for (final (a, b) in sorted.skip(1)) {
+    if (a.difference(end) > wakeGap) {
+      close();
+      (start, end) = (a, b);
+    } else if (b.isAfter(end)) {
+      end = b;
+    }
+  }
+  close();
+  return bestStart;
 }

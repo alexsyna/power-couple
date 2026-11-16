@@ -7,7 +7,6 @@ import '../domain/activity.dart';
 import '../domain/stars.dart';
 import '../state/app_controller.dart';
 import '../state/health_sync.dart';
-import '../state/together_tracker.dart';
 import 'common.dart';
 import 'snap_screen.dart';
 
@@ -15,8 +14,8 @@ const _colors = {
   StarActivity.chores: Vivid.sky,
   StarActivity.steps: Vivid.grass,
   StarActivity.sleep: Vivid.grape,
+  StarActivity.bedtime: Vivid.berry,
   StarActivity.snap: Vivid.flame,
-  StarActivity.together: Vivid.berry,
 };
 
 /// Today's stars (and the last week's), per activity, for the couple and
@@ -186,6 +185,25 @@ class _ActivityRow extends StatelessWidget {
           isToday ? (n < maxStars ? 'Last night · 7h each for ⭐⭐⭐' : 'Last night') : null,
         );
 
+      case StarActivity.bedtime:
+        if (needsPartner) return ('Both partners need sleep data', null);
+        // Values are minutes after 6 pm the evening before.
+        final evening = DateTime.utc(2000, 1, 1, 18);
+        String clock(int v) => DateFormat.Hm().format(evening.add(Duration(minutes: v)));
+        final gap = stars.coupleValue;
+        final detail = stars.values.isEmpty
+            ? 'When you each fell asleep, from Apple Health'
+            : [
+                for (final m in app.household!.members)
+                  '${app.nameOf(m.userId)} ${stars.values[m.userId] == null ? 'no data' : clock(stars.values[m.userId]!)}',
+              ].join(' · ');
+        String? hint;
+        if (gap != null) {
+          final apart = gap < 60 ? '$gap min apart' : '${_hm(gap)} apart';
+          hint = isToday && n < maxStars ? '$apart · within 1h for ⭐⭐⭐' : apart;
+        }
+        return (detail, hint);
+
       case StarActivity.snap:
         final open = !isToday || app.snapOpen;
         final detail = !open
@@ -198,19 +216,6 @@ class _ActivityRow extends StatelessWidget {
         }
         return (detail, hint);
 
-      case StarActivity.together:
-        final minutes = stars.coupleValue ?? 0;
-        final active = isToday ? app.activeSession : null;
-        String? hint;
-        if (isToday && n < maxStars) {
-          hint = active != null && active.bothJoined
-              ? '${n < 2 ? 30 - minutes : 60 - minutes} more min for ${_stars(n + 1)}'
-              : 'Start a session when you go out, both join for ⭐';
-        }
-        if (isToday && app.household!.homeLat == null) {
-          hint = '${hint == null ? '' : '$hint\n'}Set your home in Settings so time at home doesn\'t count';
-        }
-        return (minutes > 0 || active != null ? '$minutes min together' : null, hint);
     }
   }
 
@@ -224,8 +229,10 @@ class _ActivityRow extends StatelessWidget {
     switch (stars.activity) {
       case StarActivity.chores:
         return null;
-      case StarActivity.steps:
       case StarActivity.sleep:
+      case StarActivity.bedtime:
+        return null; // one Apple Health button, on Steps, is enough
+      case StarActivity.steps:
         if (!HealthSync.supported) return const _Note('Apple Health works in the iPhone app');
         if (app.health.connected) return null;
         return _SmallButton('Connect Apple Health', onPressed: () => _run(context, app.connectHealth));
@@ -233,23 +240,6 @@ class _ActivityRow extends StatelessWidget {
         if (!app.snapOpen) return null;
         final mine = app.stars.snapOf(app.me, day);
         return _SmallButton(mine == null ? '📸 Snap now' : 'See snaps', onPressed: () => openSnap(context, day: day));
-      case StarActivity.together:
-        if (!TogetherTracker.supported) return const _Note('Out together works in the iPhone app');
-        final active = app.activeSession;
-        if (active == null) {
-          return _SmallButton("💑 We're out together", onPressed: () => _run(context, app.startTogether));
-        }
-        final inIt = active.startedBy == app.me || active.joinedBy == app.me;
-        if (!inIt) {
-          return _SmallButton('Join ${app.nameOf(active.startedBy)}', onPressed: () => _run(context, () => app.joinTogether(active)));
-        }
-        return Row(children: [
-          if (!active.bothJoined)
-            Expanded(child: Text('Waiting for ${app.partner?.displayName ?? 'your partner'} to join…',
-                style: Theme.of(context).textTheme.bodySmall)),
-          if (active.bothJoined) const Expanded(child: _Note('📍 Recording while you\'re together')),
-          _SmallButton('End', onPressed: () => _run(context, () => app.endTogether(active))),
-        ]);
     }
   }
 

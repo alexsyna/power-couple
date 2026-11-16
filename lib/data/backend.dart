@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import '../domain/activity.dart';
 import '../domain/catalog.dart';
+import '../domain/challenge.dart';
+import '../domain/stars.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
 import '../domain/questions.dart';
@@ -119,9 +121,6 @@ abstract class Backend {
 
   // ------------------------------------------------------- daily stars
 
-  /// Saves where the couple lives (time near home isn't "out together").
-  Future<void> setHome(String householdId, double lat, double lng);
-
   /// Both partners' Apple Health numbers from [since] (a local date).
   Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since);
 
@@ -136,16 +135,29 @@ abstract class Backend {
   /// The photo's bytes, or null if it has none (demo data).
   Future<Uint8List?> snapPhoto(Snap snap);
 
-  /// Sessions started from [since], each with its pings.
-  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since);
+  // ------------------------------------------------------- castle climb
 
-  Future<TogetherSession> startTogether(String householdId);
-  Future<void> joinTogether(String sessionId);
-  Future<void> endTogether(String sessionId);
+  /// Climbs my household is in, with the scores I may see.
+  Future<List<Challenge>> loadChallenges(String householdId);
 
-  /// Records where my phone is during a session. Returns false once the
-  /// session has ended (so the phone can stop tracking).
-  Future<bool> addPing(String sessionId, double lat, double lng);
+  /// Null when the code doesn't exist.
+  Future<ClimbPreview?> previewChallenge(String code);
+
+  Future<Challenge> createChallenge({
+    required String householdId,
+    required List<StarActivity> activities,
+    required int days,
+    required DateTime startsOn,
+    required DateTime revealAt,
+    required String? stakes,
+    required String teamName,
+    required String banner,
+  });
+
+  Future<void> joinChallenge({required String code, required String teamName, required String banner});
+
+  /// Saves my team's daily stars (only before the reveal).
+  Future<void> saveClimbScores(String challengeId, String householdId, List<ClimbScore> rows);
 
   /// Emits when the household's members, settings or logs change elsewhere
   /// (e.g. on the partner's phone).

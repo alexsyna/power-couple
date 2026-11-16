@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/activity.dart';
 import '../domain/catalog.dart';
+import '../domain/challenge.dart';
+import '../domain/stars.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
 import '../domain/questions.dart';
@@ -142,8 +144,6 @@ class SupabaseBackend implements Backend {
         QuestionPack.light,
         for (final p in (couple['unlocked_packs'] as List?) ?? const []) ?QuestionPack.parse(p as String),
       },
-      homeLat: (couple['home_lat'] as num?)?.toDouble(),
-      homeLng: (couple['home_lng'] as num?)?.toDouble(),
     );
   }
 
@@ -212,14 +212,10 @@ class SupabaseBackend implements Backend {
   // ------------------------------------------------------- daily stars
 
   @override
-  Future<void> setHome(String householdId, double lat, double lng) =>
-      _guard(() => _client.from('couples').update({'home_lat': lat, 'home_lng': lng}).eq('id', householdId));
-
-  @override
   Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since) => _guard(() async {
         final rows = await _client
             .from('daily_metrics')
-            .select('user_id, day, steps, sleep_minutes')
+            .select('user_id, day, steps, sleep_minutes, bed_at')
             .eq('couple_id', householdId)
             .gte('day', dateKey(since));
         return [
@@ -229,6 +225,7 @@ class SupabaseBackend implements Backend {
               day: parseDateKey(r['day'] as String),
               steps: r['steps'] as int?,
               sleepMinutes: r['sleep_minutes'] as int?,
+              bedAt: r['bed_at'] == null ? null : DateTime.parse(r['bed_at'] as String),
             ),
         ];
       });
@@ -244,6 +241,7 @@ class SupabaseBackend implements Backend {
               'day': dateKey(m.day),
               'steps': m.steps,
               'sleep_minutes': m.sleepMinutes,
+              'bed_at': m.bedAt?.toUtc().toIso8601String(),
               'updated_at': DateTime.now().toUtc().toIso8601String(),
             },
         ], onConflict: 'user_id,day');
@@ -284,78 +282,115 @@ class SupabaseBackend implements Backend {
         path: r['path'] as String?,
       );
 
+  // ------------------------------------------------------- castle climb
+
   @override
-  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since) => _guard(() async {
+  Future<List<Challenge>> loadChallenges(String householdId) => _guard(() async {
+        final mine = await _client.from('challenge_teams').select('challenge_id').eq('couple_id', householdId);
+        final ids = [for (final r in mine) r['challenge_id'] as String];
+        if (ids.isEmpty) return const <Challenge>[];
         final rows = await _client
-            .from('together_sessions')
-            .select('*, together_pings(user_id, at, lat, lng)')
-            .eq('couple_id', householdId)
-            .gte('started_at', since.subtract(const Duration(days: 1)).toIso8601String())
-            .order('started_at');
-        return [for (final r in rows) _sessionFromRow(r)];
+            .from('challenges')
+            .select('*, challenge_teams(*)')
+            .inFilter('id', ids)
+            .order('starts_on', ascending: false);
+        // Row-level security returns only my scores until the reveal.
+        final scoreRows = await _client.from('challenge_scores').select().inFilter('challenge_id', ids);
+        return [
+          for (final r in rows)
+            Challenge(
+              id: r['id'] as String,
+              code: r['invite_code'] as String,
+              activities: parseActivities(r['activities'] as List),
+              days: r['days'] as int,
+              startsOn: parseDateKey(r['starts_on'] as String),
+              revealAt: DateTime.parse(r['reveal_at'] as String),
+              stakes: r['stakes'] as String?,
+              createdBy: r['created_by'] as String?,
+              teams: [
+                for (final t in (r['challenge_teams'] as List))
+                  ClimbTeam(
+                    coupleId: t['couple_id'] as String,
+                    name: t['name'] as String,
+                    banner: t['banner'] as String,
+                    joinedAt: DateTime.parse(t['joined_at'] as String),
+                    lastClimbAt: t['last_climb_at'] == null ? null : DateTime.parse(t['last_climb_at'] as String),
+                  ),
+              ],
+              scores: [
+                for (final s in scoreRows)
+                  if (s['challenge_id'] == r['id'])
+                    ClimbScore(
+                      coupleId: s['couple_id'] as String,
+                      day: parseDateKey(s['day'] as String),
+                      activity: StarActivity.values.byName(s['activity'] as String),
+                      stars: s['stars'] as int,
+                    ),
+              ],
+            ),
+        ];
       });
 
-  static TogetherSession _sessionFromRow(Map<String, dynamic> r) {
-    DateTime? at(String k) => r[k] == null ? null : DateTime.parse(r[k] as String);
-    return TogetherSession(
-      id: r['id'] as String,
-      startedBy: r['started_by'] as String,
-      startedAt: DateTime.parse(r['started_at'] as String),
-      joinedBy: r['joined_by'] as String?,
-      joinedAt: at('joined_at'),
-      endedAt: at('ended_at'),
-      pings: [
-        for (final p in (r['together_pings'] as List?) ?? const [])
-          TogetherPing(
-            userId: p['user_id'] as String,
-            at: DateTime.parse(p['at'] as String),
-            lat: (p['lat'] as num).toDouble(),
-            lng: (p['lng'] as num).toDouble(),
-          ),
-      ],
-    );
-  }
-
   @override
-  Future<TogetherSession> startTogether(String householdId) => _guard(() async {
-        final row = await _client
-            .from('together_sessions')
-            .insert({'couple_id': householdId, 'started_by': currentUserId})
-            .select()
-            .single();
-        return _sessionFromRow(row);
+  Future<ClimbPreview?> previewChallenge(String code) => _guard(() async {
+        final rows = await _client.rpc('preview_challenge', params: {'p_code': code}) as List;
+        if (rows.isEmpty) return null;
+        final r = rows.first as Map<String, dynamic>;
+        return ClimbPreview(
+          id: r['id'] as String,
+          activities: parseActivities(r['activities'] as List),
+          days: r['days'] as int,
+          startsOn: parseDateKey(r['starts_on'] as String),
+          stakes: r['stakes'] as String?,
+          teams: r['teams'] as int,
+          alreadyIn: r['already_in'] as bool,
+        );
       });
 
   @override
-  Future<void> joinTogether(String sessionId) => _guard(() => _client
-      .from('together_sessions')
-      .update({'joined_by': currentUserId, 'joined_at': DateTime.now().toUtc().toIso8601String()})
-      .eq('id', sessionId)
-      .isFilter('joined_by', null));
-
-  @override
-  Future<void> endTogether(String sessionId) => _guard(() => _client
-      .from('together_sessions')
-      .update({'ended_at': DateTime.now().toUtc().toIso8601String(), 'ended_by': currentUserId})
-      .eq('id', sessionId)
-      .isFilter('ended_at', null));
-
-  @override
-  Future<bool> addPing(String sessionId, double lat, double lng) async {
-    try {
-      await _client.from('together_pings').insert({
-        'session_id': sessionId,
-        'user_id': currentUserId,
-        'lat': lat,
-        'lng': lng,
+  Future<Challenge> createChallenge({
+    required String householdId,
+    required List<StarActivity> activities,
+    required int days,
+    required DateTime startsOn,
+    required DateTime revealAt,
+    required String? stakes,
+    required String teamName,
+    required String banner,
+  }) =>
+      _guard(() async {
+        final row = await _client.rpc('create_challenge', params: {
+          'p_activities': [for (final a in activities) a.name],
+          'p_days': days,
+          'p_starts_on': dateKey(startsOn),
+          'p_reveal_at': revealAt.toUtc().toIso8601String(),
+          'p_stakes': stakes,
+          'p_team_name': teamName,
+          'p_banner': banner,
+        });
+        final all = await loadChallenges(householdId);
+        return all.firstWhere((c) => c.id == row['id']);
       });
-      return true;
-    } on PostgrestException catch (e) {
-      // Row-level security refuses pings once the session is over.
-      if (e.code == '42501') return false;
-      throw BackendException(e.message);
-    }
-  }
+
+  @override
+  Future<void> joinChallenge({required String code, required String teamName, required String banner}) =>
+      _guard(() => _client.rpc('join_challenge', params: {'p_code': code, 'p_team_name': teamName, 'p_banner': banner}));
+
+  @override
+  Future<void> saveClimbScores(String challengeId, String householdId, List<ClimbScore> rows) => _guard(() async {
+        if (rows.isEmpty) return;
+        await _client.from('challenge_scores').upsert([
+          for (final s in rows)
+            {
+              'challenge_id': challengeId,
+              'couple_id': householdId,
+              'day': dateKey(s.day),
+              'activity': s.activity.name,
+              'stars': s.stars,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            },
+        ], onConflict: 'challenge_id,couple_id,day,activity');
+      });
 
   @override
   Future<List<TaskLog>> loadLogs(String householdId) => _guard(() async {
@@ -609,12 +644,7 @@ class SupabaseBackend implements Backend {
             table: 'snaps',
             filter: filter('couple_id'),
             callback: ping)
-        .onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'together_sessions',
-            filter: filter('couple_id'),
-            callback: ping)
+
         .onPostgresChanges(
             // Row-level security limits this to me and my partner.
             event: PostgresChangeEvent.update,
@@ -669,6 +699,11 @@ class SupabaseBackend implements Backend {
       'household is full',
       'already in a household',
       'cannot delete this log',
+      'challenge code not found',
+      'already in this climb',
+      'this climb has already started',
+      'this climb is full',
+      'join a household first',
     ]) {
       if (message.contains(known)) {
         return known[0].toUpperCase() + known.substring(1);

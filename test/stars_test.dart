@@ -3,6 +3,7 @@ import 'package:power_couple/domain/activity.dart';
 import 'package:power_couple/domain/calendar.dart';
 import 'package:power_couple/domain/models.dart';
 import 'package:power_couple/domain/stars.dart';
+import 'package:power_couple/state/health_sync.dart';
 
 const a = 'alex', b = 'sam';
 
@@ -29,9 +30,6 @@ void main() {
     List<TaskLog> logs = const [],
     List<DailyMetrics> metrics = const [],
     List<Snap> snaps = const [],
-    List<TogetherSession> sessions = const [],
-    double? homeLat,
-    double? homeLng,
   }) =>
       StarsCalculator(
         household: household(),
@@ -39,10 +37,7 @@ void main() {
         logs: logs,
         metrics: metrics,
         snaps: snaps,
-        sessions: sessions,
         now: at(day, 23),
-        homeLat: homeLat,
-        homeLng: homeLng,
       );
 
   test('tiers', () {
@@ -53,10 +48,11 @@ void main() {
     expect(snapStars(const Duration(minutes: 59)), 3);
     expect(snapStars(const Duration(minutes: 61)), 2);
     expect(snapStars(const Duration(hours: 3)), 1);
-    expect(togetherStars(bothJoined: false, minutes: 0), 0);
-    expect(togetherStars(bothJoined: true, minutes: 10), 1);
-    expect(togetherStars(bothJoined: true, minutes: 30), 2);
-    expect(togetherStars(bothJoined: true, minutes: 75), 3);
+    expect(bedtimeStars(null), 0);
+    expect(bedtimeStars(const Duration(minutes: 60)), 3);
+    expect(bedtimeStars(const Duration(minutes: 61)), 2);
+    expect(bedtimeStars(const Duration(hours: 2)), 2);
+    expect(bedtimeStars(const Duration(hours: 4)), 1);
     // Usual 2.5 tasks a day: 1-2 is ⭐, 3-4 is ⭐⭐, 5+ is ⭐⭐⭐.
     expect([0, 1, 2, 3, 4, 5].map((t) => choreStars(t, 2.5)), [0, 1, 1, 2, 2, 3]);
   });
@@ -105,43 +101,29 @@ void main() {
     expect(calc(snaps: [s(a, const Duration(hours: 5)), s(b, const Duration(minutes: 1))]).snap(day).stars, 1);
   });
 
-  test('out together counts minutes both phones were close and away from home', () {
-    final start = at(day, 19);
-    // Two phones 20 m apart, one ping a minute for [minutes].
-    List<TogetherPing> walk(int minutes, {double lat = 37.98}) => [
-          for (var m = 0; m < minutes; m++) ...[
-            TogetherPing(userId: a, at: start.add(Duration(minutes: m)), lat: lat, lng: 23.72),
-            TogetherPing(userId: b, at: start.add(Duration(minutes: m)), lat: lat + 0.0002, lng: 23.72),
-          ],
-        ];
-    TogetherSession session(List<TogetherPing> pings, {bool joined = true}) => TogetherSession(
-          id: 's',
-          startedBy: a,
-          startedAt: start,
-          joinedBy: joined ? b : null,
-          joinedAt: joined ? start : null,
-          endedAt: start.add(const Duration(hours: 2)),
-          pings: pings,
-        );
+  test('bedtime sync compares when each partner fell asleep', () {
+    DailyMetrics m(String u, int hour, int minute) =>
+        DailyMetrics(userId: u, day: day, sleepMinutes: 420, bedAt: cal.instantAt(addDays(day, -1), hour, minute));
+    // Across midnight: 23:30 and 00:10 are 40 minutes apart.
+    final close = calc(metrics: [m(a, 23, 30), DailyMetrics(userId: b, day: day, sleepMinutes: 400, bedAt: cal.instantAt(day, 0, 10))]).bedtime(day);
+    expect(close.coupleValue, 40);
+    expect(close.stars, 3);
+    expect(calc(metrics: [m(a, 22, 0), m(b, 23, 45)]).bedtime(day).stars, 2);
+    expect(calc(metrics: [m(a, 21, 0), m(b, 23, 30)]).bedtime(day).stars, 1);
+    // One partner without sleep data: no stars yet.
+    expect(calc(metrics: [m(a, 22, 0)]).bedtime(day).stars, 0);
+  });
 
-    expect(calc(sessions: [session(walk(0), joined: false)]).together(day).stars, 0);
-    expect(calc(sessions: [session(walk(0))]).together(day).stars, 1);
-    final half = calc(sessions: [session(walk(35))]).together(day);
-    expect(half.stars, 2);
-    expect(half.coupleValue, inInclusiveRange(35, 38)); // last ping covers a few minutes
-    expect(calc(sessions: [session(walk(70))]).together(day).stars, 3);
-
-    // Apart: 2 km between the phones.
-    final apart = [
-      for (var m = 0; m < 70; m++) ...[
-        TogetherPing(userId: a, at: start.add(Duration(minutes: m)), lat: 37.98, lng: 23.72),
-        TogetherPing(userId: b, at: start.add(Duration(minutes: m)), lat: 38.0, lng: 23.72),
-      ],
-    ];
-    expect(calc(sessions: [session(apart)]).together(day).stars, 1);
-
-    // At home: doesn't count.
-    expect(calc(sessions: [session(walk(70))], homeLat: 37.98, homeLng: 23.72).together(day).stars, 1);
+  test('bedtime is the start of the main sleep, not an evening nap', () {
+    DateTime t(int d, int h, int m) => DateTime.utc(2026, 11, d, h, m);
+    final from = t(9, 16, 0), to = t(10, 10, 0);
+    final start = mainSleepStart([
+      (t(9, 19, 0), t(9, 19, 40)), // nap on the sofa
+      (t(9, 23, 10), t(10, 2, 0)),
+      (t(10, 2, 20), t(10, 6, 30)), // woke up briefly: same night
+    ], from, to);
+    expect(start, t(9, 23, 10));
+    expect(mainSleepStart(const [], from, to), isNull);
   });
 
   test('a day adds up all five activities', () {

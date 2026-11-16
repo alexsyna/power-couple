@@ -11,7 +11,6 @@ import 'onboarding_screen.dart';
 import 'profile_card.dart';
 import 'shop.dart';
 import '../state/health_sync.dart';
-import '../state/together_tracker.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -242,7 +241,7 @@ class _NotificationsCardState extends State<_NotificationsCard> {
   }
 }
 
-/// Where daily stars get their data: Apple Health and the home location.
+/// Where daily stars get their data: Apple Health.
 class _StarsSettingsCard extends StatefulWidget {
   const _StarsSettingsCard();
 
@@ -271,7 +270,6 @@ class _StarsSettingsCardState extends State<_StarsSettingsCard> {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final health = app.health;
-    final home = app.household!.hasHome;
     return SectionCard(
       title: '⭐ Daily stars',
       child: Column(children: [
@@ -281,7 +279,7 @@ class _StarsSettingsCardState extends State<_StarsSettingsCard> {
           subtitle: !HealthSync.supported
               ? 'Available in the iPhone app'
               : health.connected
-                  ? 'Steps and sleep. Change what\'s shared in the Health app → Sharing.'
+                  ? 'Steps, sleep and bedtime. Change what\'s shared in the Health app → Sharing.'
                   : 'Share steps and sleep for daily stars',
           color: Vivid.berry,
           trailing: HealthSync.supported
@@ -292,20 +290,6 @@ class _StarsSettingsCardState extends State<_StarsSettingsCard> {
                       : (on) => on
                           ? _run(app.connectHealth, '❤️ Apple Health connected')
                           : _run(app.disconnectHealth, 'Apple Health disconnected'),
-                )
-              : null,
-        ),
-        SettingRow(
-          emoji: '🏠',
-          title: 'Home location',
-          subtitle: home
-              ? 'Set. Time near home doesn\'t count as out together.'
-              : 'Tap at home so time there doesn\'t count as out together',
-          color: Vivid.sky,
-          trailing: TogetherTracker.supported
-              ? TextButton(
-                  onPressed: _busy ? null : () => _run(app.setHomeHere, '🏠 Home saved'),
-                  child: Text(home ? 'Update' : "I'm home"),
                 )
               : null,
         ),

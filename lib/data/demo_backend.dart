@@ -6,6 +6,8 @@ import 'dart:math';
 import '../domain/calendar.dart';
 import '../domain/activity.dart';
 import '../domain/catalog.dart';
+import '../domain/challenge.dart';
+import '../domain/stars.dart';
 import '../domain/missions.dart';
 import '../domain/models.dart';
 import '../domain/questions.dart';
@@ -30,8 +32,9 @@ class DemoBackend implements Backend {
   final List<TaskDef> _customTasks = [];
   final List<DailyMetrics> _metrics = [];
   final List<Snap> _snaps = [];
+  final List<Challenge> _climbs = [];
+  final Map<String, List<ClimbScore>> _climbScores = {};
   final Map<String, Uint8List> _snapPhotos = {};
-  final List<TogetherSession> _sessions = [];
   final List<Answer> _answers = [];
   String? _user = alex.userId;
   var _seq = 0;
@@ -111,6 +114,7 @@ class DemoBackend implements Backend {
       Mission(id: 'm4', title: 'Renew home insurance', dueOn: today, createdAt: now, createdBy: sam.userId, completedAt: now.subtract(const Duration(hours: 5)), completedBy: sam.userId, assignee: sam.userId),
     ]);
     _seedStars(now, today);
+    _seedClimbs(now, today);
     _logs.add(TaskLog(
       id: 'seed-${_seq++}',
       taskId: otherTaskId,
@@ -121,7 +125,7 @@ class DemoBackend implements Backend {
     ));
   }
 
-  /// A week of steps, sleep, snaps and one evening out, so the stars card
+  /// A week of steps, sleep, bedtimes and snaps, so the stars card
   /// has something to show.
   void _seedStars(DateTime now, DateTime today) {
     final cal = HouseholdCalendar(_household.timezone);
@@ -129,11 +133,27 @@ class DemoBackend implements Backend {
     const samSteps = [8100, 5400, 3200, 9900, 7300, 2900, 3900];
     const alexSleep = [450, 380, 330, 425, 470, 300, 405];
     const samSleep = [430, 410, 290, 440, 395, 365, 0];
+    // Minutes after 22:00 the evening before that each fell asleep.
+    const alexBed = [60, 75, 40, 30, 90, 150, 20];
+    const samBed = [45, 20, 200, 10, 30, 0, 110];
     for (var i = 6; i >= 0; i--) {
       final day = addDays(today, -i);
+      final evening = cal.instantAt(addDays(day, -1), 22, 0);
       _metrics
-        ..add(DailyMetrics(userId: alex.userId, day: day, steps: alexSteps[i], sleepMinutes: alexSleep[i]))
-        ..add(DailyMetrics(userId: sam.userId, day: day, steps: samSteps[i], sleepMinutes: samSleep[i] == 0 ? null : samSleep[i]));
+        ..add(DailyMetrics(
+          userId: alex.userId,
+          day: day,
+          steps: alexSteps[i],
+          sleepMinutes: alexSleep[i],
+          bedAt: evening.add(Duration(minutes: alexBed[i])),
+        ))
+        ..add(DailyMetrics(
+          userId: sam.userId,
+          day: day,
+          steps: samSteps[i],
+          sleepMinutes: samSleep[i] == 0 ? null : samSleep[i],
+          bedAt: samSleep[i] == 0 ? null : evening.add(Duration(minutes: samBed[i])),
+        ));
       if (i == 0) continue;
       final m = snapPromptMinute(_household.id, dateKey(day));
       final prompt = cal.instantAt(day, m ~/ 60, m % 60);
@@ -142,22 +162,69 @@ class DemoBackend implements Backend {
         _snaps.add(Snap(id: 'snap-${_seq++}', userId: who, day: day, takenAt: prompt.add(Duration(minutes: after))));
       }
     }
-    // Yesterday evening: 75 minutes out together, a few blocks from home.
-    final start = cal.instantAt(addDays(today, -1), 19, 0);
-    _household = _household.copyWith(home: (37.9838, 23.7275));
-    _sessions.add(TogetherSession(
-      id: 'together-${_seq++}',
-      startedBy: alex.userId,
-      startedAt: start,
-      joinedBy: sam.userId,
-      joinedAt: start,
-      endedAt: start.add(const Duration(minutes: 80)),
-      pings: [
-        for (var m = 0; m < 75; m++)
-          for (final (who, dLat) in [(alex.userId, 0.0), (sam.userId, 0.0002)])
-            TogetherPing(userId: who, at: start.add(Duration(minutes: m)), lat: 37.9938 + dLat, lng: 23.7375),
+  }
+
+  static const _maria = 'demo-maria-nikos';
+  static const _eleni = 'demo-eleni-kostas';
+
+  /// A climb in progress, a finished one, and one to join with "FRIEND".
+  void _seedClimbs(DateTime now, DateTime today) {
+    final cal = HouseholdCalendar(_household.timezone);
+    final rnd = Random(11);
+    ClimbTeam t(String id, String name, String banner, {DateTime? last}) =>
+        ClimbTeam(coupleId: id, name: name, banner: banner, joinedAt: now.subtract(const Duration(days: 12)), lastClimbAt: last);
+    List<ClimbScore> random(Challenge c, String who, int upToDay, int bias) => [
+          for (var d = 0; d <= upToDay && d < c.days; d++)
+            for (final a in c.activities)
+              ClimbScore(coupleId: who, day: addDays(c.startsOn, d), activity: a, stars: (rnd.nextInt(3) + bias).clamp(0, 3)),
+        ];
+    final run = Challenge(
+      id: 'climb-run',
+      code: 'CLIMB7',
+      activities: const [StarActivity.chores, StarActivity.steps, StarActivity.sleep, StarActivity.snap],
+      days: 7,
+      startsOn: addDays(today, -3),
+      revealAt: cal.instantAt(addDays(today, 4), 12, 0),
+      stakes: 'Last place buys the first round 🍻',
+      createdBy: alex.userId,
+      teams: [
+        t(_household.id, 'Alex & Sam', '🦊'),
+        t(_maria, 'Maria & Nikos', '🐻', last: now.subtract(const Duration(minutes: 40))),
+        t(_eleni, 'Eleni & Kostas', '🦉', last: now.subtract(const Duration(hours: 5))),
       ],
-    ));
+    );
+    final done = Challenge(
+      id: 'climb-done',
+      code: 'WEEK44',
+      activities: const [StarActivity.chores, StarActivity.steps, StarActivity.bedtime],
+      days: 3,
+      startsOn: addDays(today, -6),
+      revealAt: cal.instantAt(addDays(today, -3), 12, 0),
+      stakes: 'Winners pick the restaurant 🍝',
+      createdBy: sam.userId,
+      teams: [
+        t(_household.id, 'Alex & Sam', '🦊'),
+        t(_maria, 'Maria & Nikos', '🐻'),
+        t(_eleni, 'Eleni & Kostas', '🦉'),
+      ],
+    );
+    final friend = Challenge(
+      id: 'climb-friend',
+      code: 'FRIEND',
+      activities: const [StarActivity.chores, StarActivity.sleep, StarActivity.bedtime],
+      days: 14,
+      startsOn: addDays(today, 1),
+      revealAt: cal.instantAt(addDays(today, 15), 12, 0),
+      stakes: 'Last place cooks dinner 🍲',
+      teams: [t(_maria, 'Maria & Nikos', '🐻'), t(_eleni, 'Eleni & Kostas', '🦉')],
+    );
+    _climbs.addAll([run, done, friend]);
+    _climbScores[run.id] = [...random(run, _maria, 3, 1), ...random(run, _eleni, 3, 0)];
+    _climbScores[done.id] = [
+      ...random(done, _household.id, 2, 1),
+      ...random(done, _maria, 2, 1),
+      ...random(done, _eleni, 2, 0),
+    ];
   }
 
   @override
@@ -327,12 +394,6 @@ class DemoBackend implements Backend {
   // ------------------------------------------------------- daily stars
 
   @override
-  Future<void> setHome(String householdId, double lat, double lng) async {
-    _household = _household.copyWith(home: (lat, lng));
-    _changes.add(null);
-  }
-
-  @override
   Future<List<DailyMetrics>> loadMetrics(String householdId, DateTime since) async =>
       [for (final m in _metrics) if (!m.day.isBefore(since)) m];
 
@@ -340,7 +401,7 @@ class DemoBackend implements Backend {
   Future<void> saveMetrics(String householdId, List<DailyMetrics> mine) async {
     for (final m in mine) {
       _metrics.removeWhere((x) => x.userId == _user && x.day == m.day);
-      _metrics.add(DailyMetrics(userId: _user!, day: m.day, steps: m.steps, sleepMinutes: m.sleepMinutes));
+      _metrics.add(DailyMetrics(userId: _user!, day: m.day, steps: m.steps, sleepMinutes: m.sleepMinutes, bedAt: m.bedAt));
     }
   }
 
@@ -369,54 +430,115 @@ class DemoBackend implements Backend {
   @override
   Future<Uint8List?> snapPhoto(Snap snap) async => _snapPhotos[snap.path];
 
+  // ------------------------------------------------------- castle climb
+
   @override
-  Future<List<TogetherSession>> loadTogether(String householdId, DateTime since) async =>
-      [for (final s in _sessions) if (!s.startedAt.isBefore(since.subtract(const Duration(days: 1)))) s];
+  Future<List<Challenge>> loadChallenges(String householdId) async {
+    final now = DateTime.now().toUtc();
+    return [
+      for (final c in _climbs)
+        if (c.teamOf(householdId) != null)
+          Challenge(
+            id: c.id,
+            code: c.code,
+            activities: c.activities,
+            days: c.days,
+            startsOn: c.startsOn,
+            revealAt: c.revealAt,
+            stakes: c.stakes,
+            createdBy: c.createdBy,
+            teams: c.teams,
+            // Like the database: others' stars only after the reveal.
+            scores: [
+              for (final s in _climbScores[c.id] ?? const <ClimbScore>[])
+                if (s.coupleId == householdId || !now.isBefore(c.revealAt)) s,
+            ],
+          ),
+    ];
+  }
 
-  int _sessionIndex(String id) => _sessions.indexWhere((s) => s.id == id);
+  Challenge? _byCode(String code) {
+    for (final c in _climbs) {
+      if (c.code == code.trim().toUpperCase()) return c;
+    }
+    return null;
+  }
 
-  TogetherSession _copySession(TogetherSession s, {String? joinedBy, DateTime? joinedAt, DateTime? endedAt}) =>
-      TogetherSession(
-        id: s.id,
-        startedBy: s.startedBy,
-        startedAt: s.startedAt,
-        joinedBy: joinedBy ?? s.joinedBy,
-        joinedAt: joinedAt ?? s.joinedAt,
-        endedAt: endedAt ?? s.endedAt,
-        pings: s.pings,
+  @override
+  Future<ClimbPreview?> previewChallenge(String code) async {
+    final c = _byCode(code);
+    if (c == null) return null;
+    return ClimbPreview(
+      id: c.id,
+      activities: c.activities,
+      days: c.days,
+      startsOn: c.startsOn,
+      stakes: c.stakes,
+      teams: c.teams.length,
+      alreadyIn: c.teamOf(_household.id) != null,
+    );
+  }
+
+  Challenge _withTeams(Challenge c, List<ClimbTeam> teams) => Challenge(
+        id: c.id,
+        code: c.code,
+        activities: c.activities,
+        days: c.days,
+        startsOn: c.startsOn,
+        revealAt: c.revealAt,
+        stakes: c.stakes,
+        createdBy: c.createdBy,
+        teams: teams,
       );
 
   @override
-  Future<TogetherSession> startTogether(String householdId) async {
-    final s = TogetherSession(id: 'together-${_seq++}', startedBy: _user!, startedAt: DateTime.now().toUtc());
-    _sessions.add(s);
+  Future<Challenge> createChallenge({
+    required String householdId,
+    required List<StarActivity> activities,
+    required int days,
+    required DateTime startsOn,
+    required DateTime revealAt,
+    required String? stakes,
+    required String teamName,
+    required String banner,
+  }) async {
+    final c = Challenge(
+      id: 'climb-${_seq++}',
+      code: 'NEW${_seq.toString().padLeft(3, '0')}',
+      activities: activities,
+      days: days,
+      startsOn: startsOn,
+      revealAt: revealAt,
+      stakes: stakes,
+      createdBy: _user,
+      teams: [ClimbTeam(coupleId: householdId, name: teamName, banner: banner, joinedAt: DateTime.now().toUtc())],
+    );
+    _climbs.add(c);
     _changes.add(null);
-    return s;
+    return c;
   }
 
   @override
-  Future<void> joinTogether(String sessionId) async {
-    final i = _sessionIndex(sessionId);
-    if (i < 0 || _sessions[i].joinedBy != null) return;
-    _sessions[i] = _copySession(_sessions[i], joinedBy: _user, joinedAt: DateTime.now().toUtc());
+  Future<void> joinChallenge({required String code, required String teamName, required String banner}) async {
+    final c = _byCode(code);
+    if (c == null) throw BackendException('Challenge code not found');
+    if (c.teamOf(_household.id) != null) throw BackendException('Already in this climb');
+    if (c.isFull) throw BackendException('This climb is full');
+    final i = _climbs.indexOf(c);
+    _climbs[i] = _withTeams(c, [
+      ...c.teams,
+      ClimbTeam(coupleId: _household.id, name: teamName, banner: banner, joinedAt: DateTime.now().toUtc()),
+    ]);
     _changes.add(null);
   }
 
   @override
-  Future<void> endTogether(String sessionId) async {
-    final i = _sessionIndex(sessionId);
-    if (i < 0 || _sessions[i].endedAt != null) return;
-    _sessions[i] = _copySession(_sessions[i], endedAt: DateTime.now().toUtc());
-    _changes.add(null);
-  }
-
-  @override
-  Future<bool> addPing(String sessionId, double lat, double lng) async {
-    final i = _sessionIndex(sessionId);
-    if (i < 0 || !_sessions[i].isActive(DateTime.now().toUtc())) return false;
-    final s = _sessions[i];
-    _sessions[i] = s.withPings([...s.pings, TogetherPing(userId: _user!, at: DateTime.now().toUtc(), lat: lat, lng: lng)]);
-    return true;
+  Future<void> saveClimbScores(String challengeId, String householdId, List<ClimbScore> rows) async {
+    final list = _climbScores.putIfAbsent(challengeId, () => []);
+    for (final r in rows) {
+      list.removeWhere((x) => x.key == r.key);
+      list.add(r);
+    }
   }
 
   @override
