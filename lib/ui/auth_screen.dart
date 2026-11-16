@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/backend.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'invite_ui.dart';
 import 'logo.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -93,6 +94,10 @@ class _AuthScreenState extends State<AuthScreen> {
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyLarge
                             ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                    if (AppScope.of(context).invites.pending case final invite?) ...[
+                      const SizedBox(height: 16),
+                      InviteBanner(invite: invite, atSetup: false),
+                    ],
                     if (demo) ...[
                       const SizedBox(height: 16),
                       const SectionCard(

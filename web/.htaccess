@@ -1,0 +1,28 @@
+# Power Couple web app on Apache (cPanel) at https://powercouple.mindblo.app
+Options -MultiViews
+RewriteEngine On
+
+# HTTPS only (.app domains and Apple's invite links require it).
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Apple checks this file before letting invite links open the iPhone app.
+<Files "apple-app-site-association">
+  ForceType application/json
+  <IfModule mod_headers.c>
+    Header set Cache-Control "max-age=3600"
+  </IfModule>
+</Files>
+
+# Invite links (/c/CODE, /h/CODE) aren't files: they load the app, which
+# reads the code from the address.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+
+# Always fetch the newest version of the app shell after an upload.
+<IfModule mod_headers.c>
+  <FilesMatch "^(index\.html|flutter_bootstrap\.js|flutter_service_worker\.js|version\.json|manifest\.json)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>

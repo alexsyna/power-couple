@@ -1,0 +1,29 @@
+# Checks every push to main: tests pass and the web app builds. The web app
+# itself is hosted on our own server (cPanel) at powercouple.mindblo.app and
+# uploaded by hand from tool/package_web.sh.
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build web --release --base-href / --dart-define-from-file=config/supabase.json

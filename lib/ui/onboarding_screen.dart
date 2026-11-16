@@ -4,6 +4,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import '../data/backend.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'invite_ui.dart';
 
 Future<String> deviceTimezone() async {
   try {
@@ -64,6 +65,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (app.invites.pending case final invite?) InviteBanner(invite: invite, atSetup: true),
           SectionCard(
             title: '🏡 Start a new household',
             child: Column(

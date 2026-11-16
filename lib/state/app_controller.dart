@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
@@ -16,6 +17,7 @@ import '../domain/questions.dart';
 import '../domain/models.dart';
 import '../domain/stars.dart';
 import 'health_sync.dart';
+import 'invites.dart';
 import 'push.dart';
 import 'snap_prompts.dart';
 
@@ -29,6 +31,8 @@ class AppController extends ChangeNotifier {
     // Live updates pause while the app is backgrounded (always on iOS), so
     // catch up with the partner's changes whenever it comes back.
     _lifecycle = AppLifecycleListener(onResume: refresh);
+    invites.addListener(() => handleInvite().ignore());
+    invites.start().ignore();
     refresh();
   }
 
@@ -39,6 +43,12 @@ class AppController extends ChangeNotifier {
 
   /// Bond push notifications on this phone.
   late final push = PushNotifications(backend, prefs);
+
+  /// Invite links waiting to be used (climbs and households).
+  late final invites = InviteLinks(prefs);
+
+  /// What happened with an invite, for the UI to show.
+  final inviteOutcome = ValueNotifier<InviteOutcome?>(null);
 
   /// Daily stars: Apple Health and Snap moment reminders.
   late final health = HealthSync(prefs);
@@ -105,6 +115,7 @@ class AppController extends ChangeNotifier {
       final h = await backend.loadHousehold();
       if (h == null) {
         _set(AppStatus.needsHousehold, null, const []);
+        handleInvite().ignore();
         return;
       }
       // Custom tasks first: logs look their task up by id.
@@ -127,6 +138,7 @@ class AppController extends ChangeNotifier {
       _set(AppStatus.ready, h, l);
       push.attach(me).ignore();
       _afterLoad();
+      handleInvite().ignore();
       _watch(h.id);
       loadError = null;
     } on BackendException catch (e) {
@@ -426,6 +438,63 @@ class AppController extends ChangeNotifier {
 
   Future<ClimbPreview?> previewClimb(String code) => backend.previewChallenge(code);
 
+  bool _handlingInvite = false;
+
+  /// Uses a waiting invite as soon as it can:
+  /// - a partner's household link joins that household right away;
+  /// - a climb link waits until I have a household, then joins the climb
+  ///   (my partner is in it too: the team is the household).
+  Future<void> handleInvite() async {
+    final invite = invites.pending;
+    if (invite == null || _handlingInvite) return;
+    if (status != AppStatus.needsHousehold && status != AppStatus.ready) return;
+    _handlingInvite = true;
+    try {
+      if (invite.kind == InviteKind.household) {
+        if (status == AppStatus.needsHousehold) {
+          await backend.joinHousehold(invite.code);
+          invites.clear();
+          await refresh();
+          inviteOutcome.value = InviteOutcome(message: '💞 You\'re in! Welcome to $teamName\'s household.');
+        } else {
+          invites.clear();
+          if (household!.inviteCode != invite.code) {
+            inviteOutcome.value = const InviteOutcome(
+              message: 'You\'re already in a household. Leave it in Settings to join another.',
+              error: true,
+            );
+          }
+        }
+        return;
+      }
+      if (status != AppStatus.ready) return; // after household setup
+      final preview = await backend.previewChallenge(invite.code);
+      if (preview == null) {
+        invites.clear();
+        inviteOutcome.value = const InviteOutcome(message: 'That climb link doesn\'t work anymore.', error: true);
+        return;
+      }
+      if (!preview.alreadyIn) {
+        await backend.joinChallenge(
+          code: invite.code,
+          teamName: teamName,
+          banner: climbBanners[math.Random().nextInt(climbBanners.length)],
+        );
+      }
+      invites.clear();
+      await refresh();
+      inviteOutcome.value = InviteOutcome(
+        climbId: preview.id,
+        askPartner: !preview.alreadyIn && !(household?.isComplete ?? true),
+      );
+    } on BackendException catch (e) {
+      invites.clear();
+      inviteOutcome.value = InviteOutcome(message: e.message, error: true);
+    } finally {
+      _handlingInvite = false;
+    }
+  }
+
   Future<void> joinClimb(String code, String banner) async {
     await backend.joinChallenge(code: code, teamName: teamName, banner: banner);
     await refresh();
@@ -587,4 +656,17 @@ class AppScope extends InheritedNotifier<AppController> {
 
   static AppController of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
+}
+
+/// The result of using an invite link.
+class InviteOutcome {
+  const InviteOutcome({this.climbId, this.askPartner = false, this.message, this.error = false});
+
+  /// A climb I just joined (or was already in): open it.
+  final String? climbId;
+
+  /// My partner isn't in the household yet: ask me to invite them.
+  final bool askPartner;
+  final String? message;
+  final bool error;
 }

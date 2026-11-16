@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../data/demo_backend.dart';
 import '../state/app_controller.dart';
 import 'bond_screen.dart';
+import 'castle_climb.dart';
+import 'invite_ui.dart';
 import 'common.dart';
 import 'history_screen.dart';
 import 'home_screen.dart';
@@ -27,6 +29,7 @@ class _ShellState extends State<Shell> {
   int _tab = 0;
   ValueNotifier<int>? _openBond;
   ValueNotifier<int>? _openSnap;
+  ValueNotifier<InviteOutcome?>? _inviteOutcome;
 
   @override
   void didChangeDependencies() {
@@ -35,6 +38,13 @@ class _ShellState extends State<Shell> {
     if (openBond != _openBond) {
       _openBond?.removeListener(_showBond);
       _openBond = openBond..addListener(_showBond);
+    }
+    final outcome = AppScope.of(context).inviteOutcome;
+    if (outcome != _inviteOutcome) {
+      _inviteOutcome?.removeListener(_showInviteOutcome);
+      _inviteOutcome = outcome..addListener(_showInviteOutcome);
+      // An invite may have been used while signing up, before this screen.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showInviteOutcome());
     }
     final openSnap = AppScope.of(context).snapPrompts.openSnap;
     if (openSnap != _openSnap) {
@@ -47,6 +57,7 @@ class _ShellState extends State<Shell> {
   void dispose() {
     _openBond?.removeListener(_showBond);
     _openSnap?.removeListener(_showSnap);
+    _inviteOutcome?.removeListener(_showInviteOutcome);
     super.dispose();
   }
 
@@ -55,6 +66,24 @@ class _ShellState extends State<Shell> {
     if (!mounted) return;
     Navigator.of(context).popUntil((r) => r.isFirst);
     setState(() => _tab = 1);
+  }
+
+  /// An invite link was used: open the climb, and ask for the partner.
+  Future<void> _showInviteOutcome() async {
+    final o = _inviteOutcome?.value;
+    if (o == null || !mounted) return;
+    _inviteOutcome!.value = null;
+    if (o.message != null) showMessage(context, o.message!, color: o.error ? Vivid.berry : Vivid.grass);
+    final id = o.climbId;
+    if (id == null) return;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    setState(() => _tab = 2);
+    if (o.askPartner) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showPartnerInviteSheet(context);
+      });
+    }
+    await openClimb(context, id);
   }
 
   /// A Snap moment reminder was tapped.

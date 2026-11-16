@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../data/backend.dart';
 import '../data/demo_backend.dart';
@@ -10,6 +9,7 @@ import 'intro_screen.dart';
 import 'onboarding_screen.dart';
 import 'profile_card.dart';
 import 'shop.dart';
+import 'invite_ui.dart';
 import '../state/health_sync.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -53,12 +53,9 @@ class SettingsScreen extends StatelessWidget {
               subtitle: h.inviteCode,
               color: Vivid.sun,
               trailing: IconButton(
-                icon: const Icon(Icons.copy_rounded),
-                tooltip: 'Copy',
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: h.inviteCode));
-                  showMessage(context, 'Invite code copied', color: Vivid.sky);
-                },
+                icon: const Icon(Icons.ios_share_rounded),
+                tooltip: 'Send the invite link',
+                onPressed: () => sharePartnerInvite(context),
               ),
             ),
             SettingRow(

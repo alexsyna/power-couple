@@ -348,6 +348,23 @@ class SupabaseBackend implements Backend {
       });
 
   @override
+  Future<InviteInfo?> inviteInfo(String code) => _guard(() async {
+        final r = await _client.rpc('invite_info', params: {'p_code': code});
+        if (r is! Map) return null;
+        if (r['kind'] == 'household') {
+          return InviteInfo.household(inviter: r['inviter'] as String?, full: r['full'] as bool);
+        }
+        return InviteInfo.climb(
+          teams: [for (final t in r['teams'] as List) t as String],
+          days: r['days'] as int,
+          activities: parseActivities(r['activities'] as List),
+          startsOn: parseDateKey(r['starts_on'] as String),
+          stakes: r['stakes'] as String?,
+          open: r['open'] as bool,
+        );
+      });
+
+  @override
   Future<Challenge> createChallenge({
     required String householdId,
     required List<StarActivity> activities,

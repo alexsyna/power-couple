@@ -11,6 +11,7 @@ import 'state/push.dart';
 import 'ui/auth_screen.dart';
 import 'ui/common.dart';
 import 'ui/intro_screen.dart';
+import 'ui/invite_ui.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/shell.dart';
 
@@ -89,9 +90,23 @@ class _RootState extends State<_Root> {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    return ListenableBuilder(
+      listenable: app.invites,
+      builder: (context, _) => _screen(app),
+    );
+  }
+
+  Widget _screen(AppController app) {
+    final invite = app.invites.pending;
     return switch (app.status) {
       AppStatus.loading => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      AppStatus.signedOut when _showIntro => IntroScreen(onDone: _finishIntro),
+      // Opened from an invite link in a browser: who invited you, and how to get in.
+      AppStatus.signedOut when invite != null && app.invites.fromWebAddress => InviteLandingScreen(
+          invite: invite,
+          onContinueHere: () => app.invites.continueHere(),
+        ),
+      // With an invite waiting, skip the walkthrough and go to sign-up.
+      AppStatus.signedOut when _showIntro && invite == null => IntroScreen(onDone: _finishIntro),
       AppStatus.signedOut => AuthScreen(startWithSignUp: _signUp),
       AppStatus.needsHousehold => const OnboardingScreen(),
       AppStatus.ready => const Shell(),

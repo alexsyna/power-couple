@@ -143,6 +143,9 @@ abstract class Backend {
   /// Null when the code doesn't exist.
   Future<ClimbPreview?> previewChallenge(String code);
 
+  /// What an invite code is for; works signed out. Null when unknown.
+  Future<InviteInfo?> inviteInfo(String code);
+
   Future<Challenge> createChallenge({
     required String householdId,
     required List<StarActivity> activities,

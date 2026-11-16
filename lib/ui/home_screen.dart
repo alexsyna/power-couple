@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../domain/catalog.dart';
 import '../domain/engine.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'invite_ui.dart';
 import 'log_task_screen.dart';
 import 'missions.dart';
 
@@ -63,13 +63,10 @@ class _InviteCard extends StatelessWidget {
           ]),
         ),
         IconButton(
-          tooltip: 'Copy code',
+          tooltip: 'Send the invite link',
           color: Colors.white,
-          icon: const Icon(Icons.copy_rounded),
-          onPressed: () {
-            Clipboard.setData(ClipboardData(text: code));
-            showMessage(context, 'Invite code copied', color: Vivid.sky);
-          },
+          icon: const Icon(Icons.ios_share_rounded),
+          onPressed: () => sharePartnerInvite(context),
         ),
       ]),
     );

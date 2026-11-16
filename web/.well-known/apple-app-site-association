@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["M7VLX5TDUD.org.powercouple.powerCouple"],
+        "components": [
+          { "/": "/c/*", "comment": "Castle Climb invites" },
+          { "/": "/h/*", "comment": "Household (partner) invites" }
+        ]
+      }
+    ]
+  }
+}

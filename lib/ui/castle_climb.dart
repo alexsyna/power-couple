@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
@@ -11,6 +10,7 @@ import '../domain/challenge.dart';
 import '../domain/stars.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'invite_ui.dart';
 
 // ------------------------------------------------------------ helpers
 
@@ -19,14 +19,6 @@ String _ago(Duration d) {
   if (d.inMinutes < 60) return '${d.inMinutes} min ago';
   if (d.inHours < 24) return '${d.inHours} h ago';
   return '${d.inDays} d ago';
-}
-
-String _shareText(String code) =>
-    'Join our Castle Climb 🏰 in Power Couple! Open the app, go to Achievements → Castle Climb → Join, and enter the code $code';
-
-Future<void> _copyCode(BuildContext context, String code) async {
-  await Clipboard.setData(ClipboardData(text: _shareText(code)));
-  if (context.mounted) showMessage(context, '📋 Invite copied. Paste it in your friends\' chat!', color: Vivid.grass);
 }
 
 String _medal(int place) => switch (place) { 1 => '🥇', 2 => '🥈', 3 => '🥉', _ => '$place.' };
@@ -249,7 +241,7 @@ class _ClimbScreenState extends State<ClimbScreen> with SingleTickerProviderStat
             label: 'Invite couples · ${c.code}',
             icon: const Icon(Icons.copy_rounded),
             color: Vivid.sky,
-            onPressed: () => _copyCode(context, c.code),
+            onPressed: () => shareClimbInvite(context, c.code),
           ),
         ],
         if (revealed) ...[

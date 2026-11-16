@@ -214,3 +214,42 @@ List<StarActivity> parseActivities(Iterable<Object?> names) => [
       for (final a in StarActivity.values)
         if (names.contains(a.name)) a,
     ];
+
+/// What an invite link leads to, readable signed out (for the landing page).
+class InviteInfo {
+  const InviteInfo.climb({
+    required List<String> this.teams,
+    required int this.days,
+    required List<StarActivity> this.activities,
+    required DateTime this.startsOn,
+    required this.open,
+    this.stakes,
+  })  : isClimb = true,
+        inviter = null,
+        full = false;
+
+  const InviteInfo.household({required this.inviter, required this.full})
+      : isClimb = false,
+        teams = null,
+        days = null,
+        activities = null,
+        startsOn = null,
+        stakes = null,
+        open = !full;
+
+  final bool isClimb;
+
+  // Climb
+  final List<String>? teams;
+  final int? days;
+  final List<StarActivity>? activities;
+  final DateTime? startsOn;
+  final String? stakes;
+
+  /// Still accepting teams.
+  final bool open;
+
+  // Household
+  final String? inviter;
+  final bool full;
+}

@@ -479,6 +479,25 @@ class DemoBackend implements Backend {
     );
   }
 
+  @override
+  Future<InviteInfo?> inviteInfo(String code) async {
+    final c = _byCode(code);
+    if (c != null) {
+      return InviteInfo.climb(
+        teams: [for (final t in c.teams) t.name],
+        days: c.days,
+        activities: c.activities,
+        startsOn: c.startsOn,
+        stakes: c.stakes,
+        open: !c.isFull,
+      );
+    }
+    if (code.trim().toUpperCase() == _household.inviteCode) {
+      return InviteInfo.household(inviter: _household.members.first.displayName, full: _household.isComplete);
+    }
+    return null;
+  }
+
   Challenge _withTeams(Challenge c, List<ClimbTeam> teams) => Challenge(
         id: c.id,
         code: c.code,
